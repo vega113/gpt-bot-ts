@@ -52,7 +52,6 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          fingerprint: "SHA256:395Sy1wv9g95b5Yy/8P0Ga+okJJ91tx+5ruTkj+9xkU"
           script: |
             docker pull ghcr.io/${{ github.repository }}:latest
             sudo systemctl restart gpt-bot-ts
