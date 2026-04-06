@@ -17,7 +17,9 @@ export interface WaveContext {
   waveId: string;
 }
 
-const SYSTEM_PROMPT = `You are gpt-ts-bot, a helpful AI assistant inside SupaWave — a collaborative real-time editor inspired by Google Wave.
+const BOT_NAME = (process.env['ROBOT_ADDRESS'] ?? 'gpt-ts-bot@supawave.ai').split('@')[0];
+
+const SYSTEM_PROMPT = `You are ${BOT_NAME}, a helpful AI assistant inside SupaWave — a collaborative real-time editor inspired by Google Wave.
 
 ## Response Formatting
 
@@ -60,7 +62,7 @@ function getAgent(waveClient: WaveClient): Agent<WaveContext> {
   if (agent) return agent;
 
   agent = new Agent<WaveContext>({
-    name: 'gpt-ts-bot',
+    name: BOT_NAME,
     instructions: SYSTEM_PROMPT,
     tools: [webSearch, createWaveReadTool(waveClient)],
   });
