@@ -2,8 +2,7 @@
  * SupaWave JSON-RPC Data API client.
  *
  * Communicates with the Wave server at /robot/dataapi/rpc using
- * Bearer token auth.  Provides typed helpers for the operations
- * the bot actually needs: fetchWave and appendBlip.
+ * Bearer token auth.
  */
 
 const DATA_API_URL = 'https://supawave.ai/robot/dataapi/rpc';
@@ -26,10 +25,15 @@ export interface WaveletData {
   participants: string[];
 }
 
+export interface ThreadData {
+  id: string;
+  blipIds: string[];
+}
+
 export interface FetchWaveResult {
   waveletData: WaveletData;
   blips: Record<string, BlipData>;
-  threads: Record<string, unknown>;
+  threads: Record<string, ThreadData>;
 }
 
 interface JsonRpcRequest {
@@ -72,6 +76,14 @@ export class WaveClient {
     return (await res.json()) as JsonRpcResponse[];
   }
 
+  private defaultWaveletId(waveId: string, waveletId?: string): string {
+    return waveletId ?? waveId.replace(/!w\+/, '!conv+root');
+  }
+
+  private ensureNewline(content: string): string {
+    return content.startsWith('\n') ? content : `\n${content}`;
+  }
+
   /** Fetch full wave state (blips, threads, participants). */
   async fetchWave(waveId: string, waveletId?: string): Promise<FetchWaveResult> {
     const [response] = await this.rpc([
@@ -80,7 +92,7 @@ export class WaveClient {
         method: 'robot.fetchWave',
         params: {
           waveId,
-          waveletId: waveletId ?? waveId.replace(/!w\+/, '!conv+root'),
+          waveletId: this.defaultWaveletId(waveId, waveletId),
         },
       },
     ]);
@@ -92,19 +104,18 @@ export class WaveClient {
     return response.data as FetchWaveResult;
   }
 
-  /** Append a new blip to the root thread. Content must start with \n. */
+  /** Append a new blip to the root thread. */
   async appendBlip(waveId: string, content: string, waveletId?: string): Promise<void> {
-    const text = content.startsWith('\n') ? content : `\n${content}`;
     const [response] = await this.rpc([
       {
         id: 'append-1',
         method: 'wavelet.appendBlip',
         params: {
           waveId,
-          waveletId: waveletId ?? waveId.replace(/!w\+/, '!conv+root'),
+          waveletId: this.defaultWaveletId(waveId, waveletId),
           blipData: {
             blipId: `TBD_bot_${Date.now()}`,
-            content: text,
+            content: this.ensureNewline(content),
           },
         },
       },
@@ -112,6 +123,62 @@ export class WaveClient {
 
     if (response.error) {
       throw new Error(`appendBlip error: ${response.error.message}`);
+    }
+  }
+
+  /** Create a reply thread under a specific blip. */
+  async replyToBlip(
+    waveId: string,
+    parentBlipId: string,
+    content: string,
+    waveletId?: string,
+  ): Promise<void> {
+    const [response] = await this.rpc([
+      {
+        id: 'reply-1',
+        method: 'blip.createChild',
+        params: {
+          waveId,
+          waveletId: this.defaultWaveletId(waveId, waveletId),
+          blipId: parentBlipId,
+          blipData: {
+            blipId: `TBD_reply_${Date.now()}`,
+            content: this.ensureNewline(content),
+          },
+        },
+      },
+    ]);
+
+    if (response.error) {
+      throw new Error(`replyToBlip error: ${response.error.message}`);
+    }
+  }
+
+  /** Continue an existing thread (add a sibling blip). */
+  async continueThread(
+    waveId: string,
+    siblingBlipId: string,
+    content: string,
+    waveletId?: string,
+  ): Promise<void> {
+    const [response] = await this.rpc([
+      {
+        id: 'continue-1',
+        method: 'blip.continueThread',
+        params: {
+          waveId,
+          waveletId: this.defaultWaveletId(waveId, waveletId),
+          blipId: siblingBlipId,
+          blipData: {
+            blipId: `TBD_cont_${Date.now()}`,
+            content: this.ensureNewline(content),
+          },
+        },
+      },
+    ]);
+
+    if (response.error) {
+      throw new Error(`continueThread error: ${response.error.message}`);
     }
   }
 }
