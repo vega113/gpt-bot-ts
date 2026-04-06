@@ -23,8 +23,7 @@ beforeEach(() => {
 describe('WaveClient', () => {
   const TOKEN = 'test-token';
   const WAVE_ID = 'wavesandbox.com!w+abc123';
-  // defaultWaveletId replaces '!w+' -> '!conv+root' literally (suffix retained)
-  const DERIVED_WAVELET_ID = 'wavesandbox.com!conv+rootabc123';
+  const DERIVED_WAVELET_ID = 'wavesandbox.com!conv+root';
   const WAVELET_ID = 'wavesandbox.com!conv+root';
 
   describe('defaultWaveletId (via public methods)', () => {

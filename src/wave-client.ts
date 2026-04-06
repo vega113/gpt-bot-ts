@@ -77,7 +77,7 @@ export class WaveClient {
   }
 
   private defaultWaveletId(waveId: string, waveletId?: string): string {
-    return waveletId ?? waveId.replace(/!w\+/, '!conv+root');
+    return waveletId ?? waveId.replace(/!w\+.*$/, '!conv+root');
   }
 
   private ensureNewline(content: string): string {
