@@ -6,6 +6,12 @@
  *   GET  /_wave/robot/profile      – Bot profile
  *   POST /_wave/robot/jsonrpc      – Receive event bundles
  *   GET  /health                   – Health check
+ *
+ * Editing detection:
+ *   BLIP_SUBMITTED is deprecated. Instead we subscribe to DOCUMENT_CHANGED
+ *   and check for the absence of `user/d/{sessionId}` annotations which
+ *   indicate active editing. When no user/d/ annotations remain on a blip
+ *   the user has finished editing and we can respond.
  */
 
 import express from 'express';
@@ -33,6 +39,12 @@ const waveClient = new WaveClient(SUPAWAVE_TOKEN);
 
 // ── types ────────────────────────────────────────────────────
 
+interface Annotation {
+  name: string;
+  value: string;
+  range: { start: number; end: number };
+}
+
 interface WaveEvent {
   type: string;
   modifiedBy: string;
@@ -44,6 +56,8 @@ interface BlipData {
   blipId: string;
   content: string;
   contributors?: string[];
+  lastModifiedTime?: number;
+  annotations?: Annotation[];
 }
 
 interface EventMessageBundle {
@@ -65,17 +79,22 @@ interface EventMessageBundle {
 
 const CAPABILITIES_XML = `<?xml version="1.0" encoding="UTF-8"?>
 <w:robot xmlns:w="http://wave.google.com/extensions/robots/1.0">
-  <w:version>1</w:version>
+  <w:version>2</w:version>
   <w:protocolversion>0.22</w:protocolversion>
   <w:capabilities>
-    <w:capability name="BLIP_SUBMITTED" context="SELF"/>
+    <w:capability name="DOCUMENT_CHANGED" context="SELF"/>
     <w:capability name="WAVELET_SELF_ADDED" context="SELF"/>
     <w:capability name="WAVELET_SELF_REMOVED" context="SELF"/>
   </w:capabilities>
 </w:robot>
 `;
 
-const CAPABILITIES_HASH = 'sha256:781b6a730877';
+const CAPABILITIES_HASH = 'sha256:gpt-bot-ts-v2';
+
+// ── deduplication ────────────────────────────────────────────
+
+/** Track content we've already responded to, keyed by blipId. */
+const respondedContent = new Map<string, string>();
 
 // ── helpers ──────────────────────────────────────────────────
 
@@ -97,22 +116,46 @@ function isValidBundle(body: unknown): body is EventMessageBundle {
   );
 }
 
-/** Extract the latest submitted blip from the event bundle. */
-function extractSubmittedBlip(
+/**
+ * Check if a blip is currently being edited.
+ * user/d/{sessionId} annotations with non-null values indicate active editing.
+ * The value format is "address,timestamp[,compositionState]".
+ */
+function isBeingEdited(blip: BlipData): boolean {
+  if (!blip.annotations) return false;
+  return blip.annotations.some(
+    (a) => a.name.startsWith('user/d/') && a.value != null && a.value !== '',
+  );
+}
+
+/**
+ * Extract blips from DOCUMENT_CHANGED events that are done being edited.
+ * Returns the latest changed blip that has no active user/d/ annotations
+ * and hasn't been responded to yet.
+ */
+function extractFinishedBlip(
   bundle: EventMessageBundle,
 ): { blip: BlipData; author: string } | null {
-  // Iterate in reverse to get the latest BLIP_SUBMITTED event
+  // Iterate events in reverse to get the latest
   for (let i = bundle.events.length - 1; i >= 0; i--) {
     const event = bundle.events[i];
-    if (event.type !== 'BLIP_SUBMITTED') continue;
+    if (event.type !== 'DOCUMENT_CHANGED') continue;
 
     const blipId = event.properties['blipId'] as string | undefined;
     const blip = blipId ? bundle.blips[blipId] : null;
     if (!blip) continue;
 
-    // Skip bot's own messages
+    // Skip if user is still editing this blip
+    if (isBeingEdited(blip)) continue;
+
+    // Skip bot's own edits
     const author = event.modifiedBy;
     if (author === ROBOT_ADDRESS) continue;
+
+    // Deduplicate: skip if we already responded to this exact content
+    const content = blip.content.replace(/^\n/, '').trim();
+    if (!content) continue;
+    if (respondedContent.get(blip.blipId) === content) continue;
 
     return { blip, author };
   }
@@ -185,21 +228,20 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
   // Handle lifecycle events
   handleSelfRemoved(bundle);
 
-  // Extract the blip to respond to
-  const submitted = extractSubmittedBlip(bundle);
+  // Extract a finished blip to respond to
+  const finished = extractFinishedBlip(bundle);
 
-  if (!submitted || !shouldRespond(submitted.blip, bundle)) {
+  if (!finished || !shouldRespond(finished.blip, bundle)) {
     res.json([notifyOp]);
     return;
   }
 
-  const { blip, author } = submitted;
+  const { blip, author } = finished;
   const userMessage = blip.content.replace(/^\n/, '').trim();
 
-  if (!userMessage) {
-    res.json([notifyOp]);
-    return;
-  }
+  // Mark as responded before processing to prevent duplicate processing
+  // from concurrent DOCUMENT_CHANGED events for the same blip
+  respondedContent.set(blip.blipId, userMessage);
 
   console.log(`[processing] wave=${waveId} author=${author}`);
 
@@ -219,6 +261,8 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
     console.log(`[replied] wave=${waveId} length=${reply.length}`);
   } catch (err) {
     console.error(`[error] wave=${waveId}`, err);
+    // Clear dedup entry so user can retry
+    respondedContent.delete(blip.blipId);
     try {
       await waveClient.appendBlip(
         waveId,

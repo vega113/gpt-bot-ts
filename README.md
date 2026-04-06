@@ -13,11 +13,17 @@ A sophisticated AI assistant for [SupaWave](https://supawave.ai) built with the 
 ## Architecture
 
 ```
-POST /_wave/robot/jsonrpc        ← Wave server sends BLIP_SUBMITTED events
+POST /_wave/robot/jsonrpc        ← Wave server sends DOCUMENT_CHANGED events
+  → Check user/d/ annotations (skip if user still editing)
+  → Deduplicate (skip if already responded to this content)
   → Acknowledge immediately (robot.notify)
   → Process with OpenAI Agent (async)
   → Post reply via Data API (wavelet.appendBlip)
 ```
+
+Editing detection uses `user/d/{sessionId}` annotations: present means
+the user is actively editing, absent means they're done. This replaces
+the deprecated `BLIP_SUBMITTED` event.
 
 Each wave gets its own `OpenAIResponsesCompactionSession` so the agent
 remembers the full conversation and auto-compacts when history grows large.
