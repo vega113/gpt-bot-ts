@@ -79,17 +79,18 @@ interface EventMessageBundle {
 
 const CAPABILITIES_XML = `<?xml version="1.0" encoding="UTF-8"?>
 <w:robot xmlns:w="http://wave.google.com/extensions/robots/1.0">
-  <w:version>2</w:version>
+  <w:version>3</w:version>
   <w:protocolversion>0.22</w:protocolversion>
   <w:capabilities>
     <w:capability name="DOCUMENT_CHANGED" context="SELF"/>
+    <w:capability name="ANNOTATED_TEXT_CHANGED" context="SELF"/>
     <w:capability name="WAVELET_SELF_ADDED" context="SELF"/>
     <w:capability name="WAVELET_SELF_REMOVED" context="SELF"/>
   </w:capabilities>
 </w:robot>
 `;
 
-const CAPABILITIES_HASH = 'sha256:gpt-bot-ts-v2';
+const CAPABILITIES_HASH = 'sha256:gpt-bot-ts-v3';
 
 // ── deduplication ────────────────────────────────────────────
 
@@ -141,23 +142,33 @@ function isBeingEdited(blip: BlipData): boolean {
 }
 
 /**
- * Extract blips from DOCUMENT_CHANGED events that are done being edited.
- * Returns the latest changed blip that has no active user/d/ annotations
+ * Extract blips that are done being edited.
+ *
+ * We subscribe to both DOCUMENT_CHANGED and ANNOTATED_TEXT_CHANGED because:
+ * - DOCUMENT_CHANGED fires for content changes (typing) but NOT annotation changes
+ * - ANNOTATED_TEXT_CHANGED fires when user/d/ annotations change (editing start/stop)
+ *
+ * The "editing done" signal (end timestamp filled in user/d/) only generates
+ * ANNOTATED_TEXT_CHANGED, so we need both to reliably detect completion.
+ *
+ * Returns the latest changed blip that has no active editing sessions
  * and hasn't been responded to yet.
  */
 function extractFinishedBlip(
   bundle: EventMessageBundle,
 ): { blip: BlipData; author: string } | null {
+  const candidateEvents = ['DOCUMENT_CHANGED', 'ANNOTATED_TEXT_CHANGED'];
+
   // Iterate events in reverse to get the latest
   for (let i = bundle.events.length - 1; i >= 0; i--) {
     const event = bundle.events[i];
-    if (event.type !== 'DOCUMENT_CHANGED') continue;
+    if (!candidateEvents.includes(event.type)) continue;
 
     const blipId = event.properties['blipId'] as string | undefined;
     const blip = blipId ? bundle.blips[blipId] : null;
     if (!blip) continue;
 
-    // Skip if user is still editing this blip
+    // Skip if any user is still editing this blip
     if (isBeingEdited(blip)) continue;
 
     // Skip bot's own edits
