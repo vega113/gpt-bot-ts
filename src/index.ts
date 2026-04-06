@@ -313,15 +313,23 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
   activeJobs++;
   // Process asynchronously and post reply via data API
   try {
-    const reply = await processMessage({
+    const decision = await processMessage({
       waveId,
       userMessage,
       author,
       waveClient,
     });
 
-    await postReply(reply);
-    console.log(`[replied] wave=${waveId} length=${reply.length}`);
+    if (!decision.shouldReply) {
+      console.log(`[skipped] wave=${waveId} bot chose not to reply`);
+      respondedContent.delete(blip.blipId); // allow retry
+      return;
+    }
+
+    // Guard: shouldReply=true with null response is a malformed model output
+    const replyText = decision.response ?? 'I had trouble generating a response. Please try again.';
+    await postReply(replyText);
+    console.log(`[replied] wave=${waveId} length=${replyText.length}`);
   } catch (err) {
     console.error(`[error] wave=${waveId}`, err);
     respondedContent.delete(blip.blipId);

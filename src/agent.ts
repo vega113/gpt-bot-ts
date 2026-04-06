@@ -7,10 +7,25 @@
  */
 
 import { Agent, run } from '@openai/agents';
+import { z } from 'zod';
 import { webSearch } from './tools/web-search.js';
 import { createWaveReadTool } from './tools/wave-read.js';
 import { getSession } from './context.js';
 import { WaveClient } from './wave-client.js';
+
+/**
+ * Structured output schema for the bot's reply decision.
+ *
+ * The LLM returns this object so the bot can decide whether to post at all.
+ */
+const BotDecision = z.object({
+  shouldReply: z.boolean().describe('Whether the bot should post a reply'),
+  response: z
+    .string()
+    .nullable()
+    .describe('The reply text when shouldReply is true; null when shouldReply is false'),
+});
+export type BotDecision = z.infer<typeof BotDecision>;
 
 /** Context passed to tools via RunContext. */
 export interface WaveContext {
@@ -20,6 +35,24 @@ export interface WaveContext {
 const BOT_NAME = (process.env['ROBOT_ADDRESS'] ?? 'gpt-ts-bot@supawave.ai').split('@')[0];
 
 const SYSTEM_PROMPT = `You are ${BOT_NAME}, a helpful AI assistant inside SupaWave — a collaborative real-time editor inspired by Google Wave.
+
+## Reply Decision
+
+You MUST decide whether to reply at all. Return a JSON object with shouldReply and response.
+
+**Always reply (shouldReply: true) when:**
+- You are directly @-mentioned (the message contains "@${BOT_NAME}")
+- A user is clearly asking you a question or requesting help
+- You are the only other participant in the conversation
+- This is the first message in a wave you just joined
+
+**Stay silent (shouldReply: false, response: null) when:**
+- A user has told you to stop responding, shut up, be quiet, go away, or only reply when mentioned
+- The message is clearly directed at another user, not you
+- It is a multi-user conversation and people are talking to each other without involving you
+- The message is a simple acknowledgment (e.g. "ok", "thanks", "got it") not directed at you
+
+**Important:** If a user previously told you to be quiet or only reply when mentioned, you MUST remember that instruction and stay silent on subsequent messages unless you are directly @-mentioned. The @-mention override is absolute — always reply when @-mentioned, regardless of prior "shut up" instructions.
 
 ## Response Formatting
 
@@ -55,16 +88,17 @@ Here is the answer. **Key points:** - First point - Second point - Third point. 
 - Do not repeat previous messages. Focus on the latest user message
 - If multiple users are in the wave, address them naturally`;
 
-let agent: Agent<WaveContext> | null = null;
+let agent: Agent<WaveContext, typeof BotDecision> | null = null;
 
 /** Lazily initialize the agent (needs WaveClient for tools). */
-function getAgent(waveClient: WaveClient): Agent<WaveContext> {
+function getAgent(waveClient: WaveClient): Agent<WaveContext, typeof BotDecision> {
   if (agent) return agent;
 
-  agent = new Agent<WaveContext>({
+  agent = new Agent<WaveContext, typeof BotDecision>({
     name: BOT_NAME,
     instructions: SYSTEM_PROMPT,
     tools: [webSearch, createWaveReadTool(waveClient)],
+    outputType: BotDecision,
   });
 
   return agent;
@@ -78,7 +112,8 @@ export interface ProcessMessageOptions {
 }
 
 /**
- * Process a user message through the agent and return the reply.
+ * Process a user message through the agent and return a structured decision.
+ * The decision includes whether the bot should reply and the reply text.
  * Uses per-wave sessions for conversation memory.
  */
 export async function processMessage({
@@ -86,7 +121,7 @@ export async function processMessage({
   userMessage,
   author,
   waveClient,
-}: ProcessMessageOptions): Promise<string> {
+}: ProcessMessageOptions): Promise<BotDecision> {
   const a = getAgent(waveClient);
   const session = getSession(waveId);
 
@@ -98,5 +133,10 @@ export async function processMessage({
     context: { waveId },
   });
 
-  return result.finalOutput ?? 'I had trouble generating a response. Please try again.';
+  if (result.finalOutput) {
+    return result.finalOutput;
+  }
+
+  // Fallback: if the agent didn't produce structured output, reply anyway
+  return { shouldReply: true, response: 'I had trouble generating a response. Please try again.' };
 }
