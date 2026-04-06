@@ -7,7 +7,7 @@
 
 export interface Annotation {
   name: string;
-  value: string;
+  value?: string | null;
   range: { start: number; end: number };
 }
 
@@ -53,11 +53,19 @@ export function mentionsBot(content: string, robotAddress: string): boolean {
 export function isValidBundle(body: unknown): body is EventMessageBundle {
   if (!body || typeof body !== 'object') return false;
   const b = body as Record<string, unknown>;
+
+  if (!Array.isArray(b['events'])) return false;
+  if (b['blips'] == null || typeof b['blips'] !== 'object') return false;
+  if (b['threads'] == null || typeof b['threads'] !== 'object') return false;
+
+  const wavelet = b['wavelet'];
+  if (wavelet == null || typeof wavelet !== 'object') return false;
+  const w = wavelet as Record<string, unknown>;
   return (
-    Array.isArray(b['events']) &&
-    b['wavelet'] != null &&
-    typeof b['wavelet'] === 'object' &&
-    typeof (b['wavelet'] as Record<string, unknown>)['waveId'] === 'string'
+    typeof w['waveId'] === 'string' &&
+    typeof w['waveletId'] === 'string' &&
+    typeof w['rootBlipId'] === 'string' &&
+    Array.isArray(w['participants'])
   );
 }
 

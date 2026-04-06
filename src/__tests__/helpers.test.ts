@@ -64,6 +64,18 @@ describe('mentionsBot', () => {
 // ── isValidBundle ─────────────────────────────────────────────
 
 describe('isValidBundle', () => {
+  const validBundle = {
+    events: [],
+    blips: {},
+    threads: {},
+    wavelet: {
+      waveId: 'wave1',
+      waveletId: 'wave1!conv+root',
+      rootBlipId: 'root-blip',
+      participants: [],
+    },
+  };
+
   it('returns false for null', () => {
     expect(isValidBundle(null)).toBe(false);
   });
@@ -73,26 +85,39 @@ describe('isValidBundle', () => {
     expect(isValidBundle(42)).toBe(false);
   });
 
-  it('returns false when events is missing', () => {
-    expect(isValidBundle({ wavelet: { waveId: 'w1' } })).toBe(false);
+  it('returns false when events is not an array', () => {
+    expect(isValidBundle({ ...validBundle, events: {} })).toBe(false);
   });
 
-  it('returns false when events is not an array', () => {
-    expect(isValidBundle({ events: {}, wavelet: { waveId: 'w1' } })).toBe(false);
+  it('returns false when blips is missing', () => {
+    const { blips: _, ...rest } = validBundle;
+    expect(isValidBundle(rest)).toBe(false);
+  });
+
+  it('returns false when threads is missing', () => {
+    const { threads: _, ...rest } = validBundle;
+    expect(isValidBundle(rest)).toBe(false);
   });
 
   it('returns false when wavelet is missing', () => {
-    expect(isValidBundle({ events: [] })).toBe(false);
+    expect(isValidBundle({ events: [], blips: {}, threads: {} })).toBe(false);
   });
 
   it('returns false when waveId is not a string', () => {
-    expect(isValidBundle({ events: [], wavelet: { waveId: 42 } })).toBe(false);
+    expect(isValidBundle({ ...validBundle, wavelet: { ...validBundle.wavelet, waveId: 42 } })).toBe(false);
   });
 
-  it('returns true for a valid minimal bundle', () => {
-    expect(
-      isValidBundle({ events: [], wavelet: { waveId: 'wave1' }, blips: {}, threads: {} }),
-    ).toBe(true);
+  it('returns false when rootBlipId is missing', () => {
+    const { rootBlipId: _, ...wavelet } = validBundle.wavelet;
+    expect(isValidBundle({ ...validBundle, wavelet })).toBe(false);
+  });
+
+  it('returns false when participants is not an array', () => {
+    expect(isValidBundle({ ...validBundle, wavelet: { ...validBundle.wavelet, participants: {} } })).toBe(false);
+  });
+
+  it('returns true for a valid bundle', () => {
+    expect(isValidBundle(validBundle)).toBe(true);
   });
 });
 

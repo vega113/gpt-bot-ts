@@ -90,7 +90,6 @@ describe('WaveClient', () => {
     });
 
     it('throws when fetch response is not ok', async () => {
-      mockJsonResponse(null, false, 403);
       fetchMock.mockResolvedValueOnce({
         ok: false,
         status: 403,
