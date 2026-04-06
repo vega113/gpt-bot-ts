@@ -118,14 +118,26 @@ function isValidBundle(body: unknown): body is EventMessageBundle {
 
 /**
  * Check if a blip is currently being edited.
- * user/d/{sessionId} annotations with non-null values indicate active editing.
- * The value format is "address,timestamp[,compositionState]".
+ *
+ * user/d/{sessionId} annotations are PERMANENT — they stay on the blip
+ * forever after editing. The signal is in the VALUE format:
+ *
+ *   "userId,startTimeMs,"          → still editing (empty end timestamp)
+ *   "userId,startTimeMs,endTimeMs" → editing done (end timestamp present)
+ *
+ * A blip is "being edited" if ANY user/d/ annotation has an empty
+ * third field (no end timestamp).
  */
 function isBeingEdited(blip: BlipData): boolean {
   if (!blip.annotations) return false;
-  return blip.annotations.some(
-    (a) => a.name.startsWith('user/d/') && a.value != null && a.value !== '',
-  );
+  return blip.annotations.some((a) => {
+    if (!a.name.startsWith('user/d/')) return false;
+    if (a.value == null || a.value === '') return false;
+    // Parse "userId,startMs,endMs" — if endMs is empty, still editing
+    const parts = a.value.split(',');
+    // parts[2] is the end timestamp: empty or missing = still editing
+    return parts.length < 3 || parts[2] === '';
+  });
 }
 
 /**
