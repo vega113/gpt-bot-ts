@@ -92,6 +92,12 @@ const CAPABILITIES_XML = `<?xml version="1.0" encoding="UTF-8"?>
 
 const CAPABILITIES_HASH = 'sha256:gpt-bot-ts-v3';
 
+// ── in-flight tracking ───────────────────────────────────────
+
+/** Count of active background reply jobs for graceful shutdown. */
+let activeJobs = 0;
+let shutdownRequested = false;
+
 // ── deduplication ────────────────────────────────────────────
 
 /** Track content we've already responded to, keyed by blipId. */
@@ -271,7 +277,11 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
   // Respond immediately so the Wave server doesn't time out
   res.json([notifyOp]);
 
-  // Process asynchronously and post reply via data API
+  // Skip new work if shutting down
+  if (shutdownRequested) return;
+
+  // Track in-flight job for graceful shutdown
+  activeJobs++;
   try {
     const reply = await processMessage({
       waveId,
@@ -284,7 +294,6 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
     console.log(`[replied] wave=${waveId} length=${reply.length}`);
   } catch (err) {
     console.error(`[error] wave=${waveId}`, err);
-    // Clear dedup entry so user can retry
     respondedContent.delete(blip.blipId);
     try {
       await waveClient.appendBlip(
@@ -295,13 +304,35 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
     } catch (replyErr) {
       console.error(`[error] failed to post error reply`, replyErr);
     }
+  } finally {
+    activeJobs--;
   }
 });
 
 // ── start ────────────────────────────────────────────────────
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`gpt-bot-ts listening on port ${PORT}`);
   console.log(`Robot address: ${ROBOT_ADDRESS}`);
   console.log(`Callback URL: https://gpt-bot-ts.supawave.ai`);
+});
+
+process.on('SIGTERM', () => {
+  console.log('[shutdown] SIGTERM received, draining...');
+  shutdownRequested = true;
+  server.close(() => {
+    console.log('[shutdown] Server closed, waiting for in-flight jobs...');
+    const check = setInterval(() => {
+      if (activeJobs === 0) {
+        clearInterval(check);
+        console.log('[shutdown] All jobs drained, exiting');
+        process.exit(0);
+      }
+    }, 500);
+    // Force exit after 25s (systemd TimeoutStopSec=30)
+    setTimeout(() => {
+      console.log(`[shutdown] Force exit with ${activeJobs} jobs still running`);
+      process.exit(1);
+    }, 25_000);
+  });
 });
