@@ -196,12 +196,15 @@ function extractFinishedBlip(
 
 /** Check if a blip is inside a reply thread (not the root thread). */
 function isBlipInThread(blipId: string, bundle: EventMessageBundle): boolean {
-  // The root thread contains top-level blips.
-  // If the blip appears in any named thread, it's in a reply thread.
-  for (const thread of Object.values(bundle.threads)) {
-    if (thread && thread.blipIds && thread.blipIds.includes(blipId)) {
-      return true;
-    }
+  const threads = bundle.threads ?? {};
+  const rootBlipId = bundle.wavelet.rootBlipId;
+
+  for (const thread of Object.values(threads)) {
+    if (!thread?.blipIds?.includes(blipId)) continue;
+    // Skip the root thread — blips there are top-level, not in a reply thread.
+    // The root thread contains the rootBlipId.
+    if (thread.blipIds.includes(rootBlipId)) continue;
+    return true;
   }
   return false;
 }
