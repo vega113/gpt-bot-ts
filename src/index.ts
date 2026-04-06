@@ -23,7 +23,7 @@ import { clearSession, sessionCount } from './context.js';
 
 const PORT = parseInt(process.env['PORT'] ?? '8089', 10);
 const SUPAWAVE_TOKEN = process.env['SUPAWAVE_TOKEN'] ?? '';
-const ROBOT_ADDRESS = process.env['ROBOT_ADDRESS'] ?? 'gpt-bot-ts@supawave.ai';
+const ROBOT_ADDRESS = process.env['ROBOT_ADDRESS'] ?? 'gpt-ts-bot@supawave.ai';
 
 if (!SUPAWAVE_TOKEN) {
   console.error('SUPAWAVE_TOKEN environment variable is required');
@@ -70,7 +70,7 @@ interface EventMessageBundle {
     participants: string[];
   };
   blips: Record<string, BlipData>;
-  threads: Record<string, unknown>;
+  threads: Record<string, { id: string; blipIds: string[] }>;
   robotAddress: string;
   rpcServerUrl: string;
 }
@@ -162,7 +162,7 @@ function isBeingEdited(blip: BlipData): boolean {
  */
 function extractFinishedBlip(
   bundle: EventMessageBundle,
-): { blip: BlipData; author: string } | null {
+): { blip: BlipData; author: string; isInThread: boolean } | null {
   const candidateEvents = ['DOCUMENT_CHANGED', 'ANNOTATED_TEXT_CHANGED'];
 
   // Iterate events in reverse to get the latest
@@ -186,9 +186,27 @@ function extractFinishedBlip(
     if (!content) continue;
     if (respondedContent.get(blip.blipId) === content) continue;
 
-    return { blip, author };
+    // Determine if this blip is in a non-root thread
+    const isInThread = isBlipInThread(blipId!, bundle);
+
+    return { blip, author, isInThread };
   }
   return null;
+}
+
+/** Check if a blip is inside a reply thread (not the root thread). */
+function isBlipInThread(blipId: string, bundle: EventMessageBundle): boolean {
+  const threads = bundle.threads ?? {};
+  const rootBlipId = bundle.wavelet.rootBlipId;
+
+  for (const thread of Object.values(threads)) {
+    if (!thread?.blipIds?.includes(blipId)) continue;
+    // Skip the root thread — blips there are top-level, not in a reply thread.
+    // The root thread contains the rootBlipId.
+    if (thread.blipIds.includes(rootBlipId)) continue;
+    return true;
+  }
+  return false;
 }
 
 /** Check if the bot should respond to this blip. */
@@ -265,14 +283,14 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
     return;
   }
 
-  const { blip, author } = finished;
+  const { blip, author, isInThread } = finished;
   const userMessage = blip.content.replace(/^\n/, '').trim();
 
   // Mark as responded before processing to prevent duplicate processing
   // from concurrent DOCUMENT_CHANGED events for the same blip
   respondedContent.set(blip.blipId, userMessage);
 
-  console.log(`[processing] wave=${waveId} author=${author}`);
+  console.log(`[processing] wave=${waveId} author=${author} blip=${blip.blipId} inThread=${isInThread}`);
 
   // Respond immediately so the Wave server doesn't time out
   res.json([notifyOp]);
@@ -280,8 +298,20 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
   // Skip new work if shutting down
   if (shutdownRequested) return;
 
+  // Post reply contextually:
+  // - If user's blip is in a thread → continue that thread
+  // - Otherwise → reply to the user's blip (creates a child thread)
+  const postReply = async (content: string) => {
+    if (isInThread) {
+      await waveClient.continueThread(waveId, blip.blipId, content, waveletId);
+    } else {
+      await waveClient.replyToBlip(waveId, blip.blipId, content, waveletId);
+    }
+  };
+
   // Track in-flight job for graceful shutdown
   activeJobs++;
+  // Process asynchronously and post reply via data API
   try {
     const reply = await processMessage({
       waveId,
@@ -290,16 +320,14 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
       waveClient,
     });
 
-    await waveClient.appendBlip(waveId, reply, waveletId);
+    await postReply(reply);
     console.log(`[replied] wave=${waveId} length=${reply.length}`);
   } catch (err) {
     console.error(`[error] wave=${waveId}`, err);
     respondedContent.delete(blip.blipId);
     try {
-      await waveClient.appendBlip(
-        waveId,
+      await postReply(
         'Sorry, I encountered an error processing your message. Please try again.',
-        waveletId,
       );
     } catch (replyErr) {
       console.error(`[error] failed to post error reply`, replyErr);
