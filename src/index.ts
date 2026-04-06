@@ -11,7 +11,7 @@
 import express from 'express';
 import { WaveClient } from './wave-client.js';
 import { processMessage } from './agent.js';
-import { sessionCount } from './context.js';
+import { clearSession, sessionCount } from './context.js';
 
 // ── config ───────────────────────────────────────────────────
 
@@ -44,7 +44,6 @@ interface BlipData {
   blipId: string;
   content: string;
   contributors?: string[];
-  annotations?: Array<{ name: string; value: string; range: { start: number; end: number } }>;
 }
 
 interface EventMessageBundle {
@@ -86,24 +85,30 @@ function mentionsBot(content: string): boolean {
   return content.includes(`@${name}`) || content.includes(ROBOT_ADDRESS);
 }
 
-/** Check if a blip has an active user/d/ annotation (user still editing). */
-function isBeingEdited(blip: BlipData): boolean {
-  return blip.annotations?.some((a) => a.name.startsWith('user/d/')) ?? false;
+/** Validate that the request body looks like an EventMessageBundle. */
+function isValidBundle(body: unknown): body is EventMessageBundle {
+  if (!body || typeof body !== 'object') return false;
+  const b = body as Record<string, unknown>;
+  return (
+    Array.isArray(b['events']) &&
+    b['wavelet'] != null &&
+    typeof b['wavelet'] === 'object' &&
+    typeof (b['wavelet'] as Record<string, unknown>)['waveId'] === 'string'
+  );
 }
 
 /** Extract the latest submitted blip from the event bundle. */
 function extractSubmittedBlip(
   bundle: EventMessageBundle,
 ): { blip: BlipData; author: string } | null {
-  for (const event of bundle.events) {
+  // Iterate in reverse to get the latest BLIP_SUBMITTED event
+  for (let i = bundle.events.length - 1; i >= 0; i--) {
+    const event = bundle.events[i];
     if (event.type !== 'BLIP_SUBMITTED') continue;
 
-    // Find the blip that was submitted
     const blipId = event.properties['blipId'] as string | undefined;
     const blip = blipId ? bundle.blips[blipId] : null;
-
     if (!blip) continue;
-    if (isBeingEdited(blip)) continue;
 
     // Skip bot's own messages
     const author = event.modifiedBy;
@@ -116,13 +121,19 @@ function extractSubmittedBlip(
 
 /** Check if the bot should respond to this blip. */
 function shouldRespond(blip: BlipData, bundle: EventMessageBundle): boolean {
-  // Always respond to @mentions
   if (mentionsBot(blip.content)) return true;
-
-  // Respond if bot is a participant (was added to the wave)
   if (bundle.wavelet.participants.includes(ROBOT_ADDRESS)) return true;
-
   return false;
+}
+
+/** Handle WAVELET_SELF_REMOVED — clean up session. */
+function handleSelfRemoved(bundle: EventMessageBundle): void {
+  for (const event of bundle.events) {
+    if (event.type === 'WAVELET_SELF_REMOVED') {
+      clearSession(bundle.wavelet.waveId);
+      console.log(`[session-cleared] wave=${bundle.wavelet.waveId}`);
+    }
+  }
 }
 
 // ── express app ──────────────────────────────────────────────
@@ -148,14 +159,20 @@ app.get('/health', (_req, res) => {
 });
 
 app.post('/_wave/robot/jsonrpc', async (req, res) => {
-  const bundle = req.body as EventMessageBundle;
+  // Validate payload
+  if (!isValidBundle(req.body)) {
+    res.status(400).json({ error: 'Invalid event bundle' });
+    return;
+  }
+
+  const bundle = req.body;
   const { waveId, waveletId } = bundle.wavelet;
 
   console.log(
     `[event] wave=${waveId} events=${bundle.events.map((e) => e.type).join(',')}`,
   );
 
-  // Immediately respond with robot.notify to acknowledge
+  // Acknowledge immediately
   const notifyOp = {
     method: 'robot.notify',
     id: 'notify-1',
@@ -164,6 +181,9 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
       protocolVersion: '0.22',
     },
   };
+
+  // Handle lifecycle events
+  handleSelfRemoved(bundle);
 
   // Extract the blip to respond to
   const submitted = extractSubmittedBlip(bundle);
@@ -181,7 +201,7 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
     return;
   }
 
-  console.log(`[processing] wave=${waveId} author=${author} message="${userMessage.slice(0, 80)}"`);
+  console.log(`[processing] wave=${waveId} author=${author}`);
 
   // Respond immediately so the Wave server doesn't time out
   res.json([notifyOp]);

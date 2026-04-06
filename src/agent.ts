@@ -12,6 +12,11 @@ import { createWaveReadTool } from './tools/wave-read.js';
 import { getSession } from './context.js';
 import { WaveClient } from './wave-client.js';
 
+/** Context passed to tools via RunContext. */
+export interface WaveContext {
+  waveId: string;
+}
+
 const SYSTEM_PROMPT = `You are gpt-bot-ts, a helpful AI assistant inside SupaWave — a collaborative real-time editor inspired by Google Wave.
 
 Guidelines:
@@ -23,13 +28,13 @@ Guidelines:
 - Do not repeat previous messages. Focus on the latest user message and respond to it.
 - If multiple users are in the wave, address them naturally.`;
 
-let agent: Agent | null = null;
+let agent: Agent<WaveContext> | null = null;
 
 /** Lazily initialize the agent (needs WaveClient for tools). */
-function getAgent(waveClient: WaveClient): Agent {
+function getAgent(waveClient: WaveClient): Agent<WaveContext> {
   if (agent) return agent;
 
-  agent = new Agent({
+  agent = new Agent<WaveContext>({
     name: 'gpt-bot-ts',
     instructions: SYSTEM_PROMPT,
     tools: [webSearch, createWaveReadTool(waveClient)],
@@ -63,6 +68,7 @@ export async function processMessage({
   const result = await run(a, input, {
     session,
     maxTurns: 10,
+    context: { waveId },
   });
 
   return result.finalOutput ?? 'I had trouble generating a response. Please try again.';
