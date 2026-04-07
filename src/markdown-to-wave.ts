@@ -103,11 +103,11 @@ function parseInline(text: string): Span[] {
   //       non-whitespace so `2 * 3 * 4` and `ls *.ts` are NOT treated as italic
   //   6 — _italic_ content — word-boundary-aware: (?<!\w) / (?!\w) so
   //       snake_case identifiers like set_user_name are NOT treated as italic
-  //   7 — `code` content
+  //   7 — `code` content  (single-backtick only; not `` ` `` inside ``` fences)
   //   8 — [link] text
   //   9 — (link) url — allows one level of balanced parens for Wikipedia-style URLs
   const inlineRx =
-    /(\*\*\*(.+?)\*\*\*|\*\*([^\s*][^*\n]*[^\s]|[^\s*])\*\*|(?<!\w)__(.+?)__(?!\w)|\*([^\s*][^*\n]*[^\s*]|[^\s*])\*|(?<!\w)_(.+?)_(?!\w)|`(.+?)`|\[([^\]]+)\]\(((?:[^()]+|\([^()]*\))*)\))/gs;
+    /(\*\*\*(.+?)\*\*\*|\*\*([^\s*][^*\n]*[^\s]|[^\s*])\*\*|(?<!\w)__(.+?)__(?!\w)|\*([^\s*][^*\n]*[^\s*]|[^\s*])\*|(?<!\w)_(.+?)_(?!\w)|(?<!`)`([^`]+)`(?!`)|\[([^\]]+)\]\(((?:[^()]+|\([^()]*\))*)\))/gs;
 
   let lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -173,6 +173,7 @@ export function markdownToWave(markdown: string): WaveContent {
   let content = '';
 
   const lines = markdown.split('\n');
+  let inFencedBlock = false;
 
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
     if (lineIndex > 0) {
@@ -184,6 +185,22 @@ export function markdownToWave(markdown: string): WaveContent {
     let prefix = '';
 
     // --- Block-level patterns ---
+
+    // Fenced code blocks: ``` or ~~~ (3+ backticks/tildes).
+    // Toggle in/out of fenced mode; emit fence delimiters and code lines as
+    // plain text so that inline patterns never fire inside a code block.
+    if (/^(`{3,}|~{3,})/.test(line)) {
+      inFencedBlock = !inFencedBlock;
+      // Emit the fence line itself as plain text (strip the fence marker but keep
+      // any language hint after it for the opening fence).
+      content += inFencedBlock ? line.replace(/^(`{3,}|~{3,})\s*/, '') : '';
+      continue;
+    }
+    if (inFencedBlock) {
+      // Inside a fenced block: pass through verbatim, no inline processing.
+      content += line;
+      continue;
+    }
 
     // Horizontal rules FIRST — before header stripping, so `# ---` is not
     // misidentified as a rule after the `#` is removed.

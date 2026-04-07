@@ -243,6 +243,30 @@ describe('markdownToWave — inline code', () => {
     expect(content).toBe('Use npm install to install');
     expect(annotations).toHaveLength(0);
   });
+
+  it('does not match inline code inside triple-backtick fenced block', () => {
+    const input = '```js\nconst x = 1;\n```';
+    const { content, annotations } = markdownToWave(input);
+    // Opening fence: language hint kept as plain text; closing fence: blank line
+    expect(content).toBe('js\nconst x = 1;\n');
+    expect(annotations).toHaveLength(0);
+  });
+
+  it('does not apply inline formatting inside fenced code blocks', () => {
+    const input = '```\n**not bold** and _not italic_\n```';
+    const { content, annotations } = markdownToWave(input);
+    // Opening fence has no language hint (empty); code line and closing fence newline
+    expect(content).toBe('\n**not bold** and _not italic_\n');
+    expect(annotations).toHaveLength(0);
+  });
+
+  it('resumes inline formatting after fenced block closes', () => {
+    const input = 'Before\n```\ncode\n```\n**after**';
+    const { content, annotations } = markdownToWave(input);
+    // "Before\n" + opening fence (empty)\n + "code\n" + closing fence (empty)\n + "after"
+    expect(content).toBe('Before\n\ncode\n\nafter');
+    expect(annotations).toContainEqual(ann('style/fontWeight', 'bold', 14, 19));
+  });
 });
 
 // ── headers ──────────────────────────────────────────────────
