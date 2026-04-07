@@ -26,11 +26,13 @@ import {
 } from './helpers.js';
 import type { BlipData, EventMessageBundle } from './helpers.js';
 import { markdownToWave } from './markdown-to-wave.js';
+import { decodeTokenExpiry, checkTokenExpiry } from './token-utils.js';
 
 // ── config ───────────────────────────────────────────────────
 
 const PORT = parseInt(process.env['PORT'] ?? '8089', 10);
 const SUPAWAVE_TOKEN = process.env['SUPAWAVE_TOKEN'] ?? '';
+const SUPAWAVE_SECRET = process.env['SUPAWAVE_SECRET'] ?? '';
 const ROBOT_ADDRESS = process.env['ROBOT_ADDRESS'] ?? 'gpt-ts-bot@supawave.ai';
 
 if (!SUPAWAVE_TOKEN) {
@@ -43,7 +45,15 @@ if (!process.env['OPENAI_API_KEY']) {
   process.exit(1);
 }
 
-const waveClient = new WaveClient(SUPAWAVE_TOKEN);
+// ── token expiry check ───────────────────────────────────────
+
+checkTokenExpiry(SUPAWAVE_TOKEN, Boolean(SUPAWAVE_SECRET));
+
+const waveClient = new WaveClient({
+  token: SUPAWAVE_TOKEN,
+  robotAddress: ROBOT_ADDRESS,
+  secret: SUPAWAVE_SECRET || undefined,
+});
 
 // ── capabilities ─────────────────────────────────────────────
 
@@ -160,7 +170,36 @@ app.get('/_wave/robot/profile', (_req, res) => {
 });
 
 app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', sessions: sessionCount() });
+  // Use the client's current token — it may have been refreshed at runtime.
+  const expiry = decodeTokenExpiry(waveClient.getToken());
+  const now = Date.now();
+  // Guard against Date objects that carry NaN (e.g. if decodeTokenExpiry receives
+  // an `exp` claim with a value outside the valid JS Date range).  NaN propagates
+  // silently: `expiryMs <= now` is false, but toISOString() would throw a RangeError.
+  const expiryMs = expiry?.getTime();
+  const hasValidExpiry = expiryMs !== undefined && Number.isFinite(expiryMs);
+  const tokenExpiresAt = hasValidExpiry ? new Date(expiryMs!).toISOString() : null;
+  // When the token can't be decoded treat it as non-expired (indeterminate) — boolean false.
+  const tokenExpired = hasValidExpiry ? expiryMs! <= now : false;
+  const hoursUntilExpiry = hasValidExpiry ? (expiryMs! - now) / (1000 * 60 * 60) : null;
+
+  let tokenWarning: string | null = null;
+  if (tokenExpired) {
+    tokenWarning = 'Token is expired';
+  } else if (!hasValidExpiry) {
+    tokenWarning = 'Token expiry could not be determined';
+  } else if (hoursUntilExpiry !== null && hoursUntilExpiry <= 24 * 7) {
+    tokenWarning = `Token expires in ${hoursUntilExpiry.toFixed(1)}h`;
+  }
+
+  res.json({
+    status: tokenExpired ? 'degraded' : 'ok',
+    sessions: sessionCount(),
+    tokenExpiresAt,
+    tokenExpired,
+    tokenWarning,
+    autoRefresh: waveClient.canRefresh(),
+  });
 });
 
 app.post('/_wave/robot/jsonrpc', async (req, res) => {

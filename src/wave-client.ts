@@ -3,11 +3,16 @@
  *
  * Communicates with the Wave server at /robot/dataapi/rpc using
  * Bearer token auth.
+ *
+ * Auto-refresh:  when `robotAddress` and `secret` are provided the client
+ * will automatically call the Wave token endpoint on startup (optional) and
+ * whenever a 401 is returned, then retry the original request once.
  */
 
 import type { WaveAnnotation } from './markdown-to-wave.js';
 
 const DATA_API_URL = 'https://supawave.ai/robot/dataapi/rpc';
+const TOKEN_API_URL = 'https://supawave.ai/robot/dataapi/token';
 
 // ── types ────────────────────────────────────────────────────
 
@@ -50,25 +55,155 @@ interface JsonRpcResponse {
   data?: unknown;
 }
 
+export interface WaveClientOptions {
+  /** JWT token — required. */
+  token: string;
+  /** Robot email address, e.g. gpt-ts-bot@supawave.ai */
+  robotAddress?: string;
+  /** Robot permanent secret used to obtain a fresh JWT.  When absent, auto-refresh is disabled. */
+  secret?: string;
+}
+
 // ── client ───────────────────────────────────────────────────
 
 export class WaveClient {
-  constructor(private token: string) {}
+  private token: string;
+  private readonly robotAddress?: string;
+  private readonly secret?: string;
+  /**
+   * When a token refresh is in-flight this holds the pending Promise so that
+   * concurrent callers can await the same refresh rather than being dropped.
+   * Null when no refresh is active.
+   */
+  private refreshPromise: Promise<void> | null = null;
+
+  constructor(tokenOrOptions: string | WaveClientOptions) {
+    if (typeof tokenOrOptions === 'string') {
+      this.token = tokenOrOptions;
+    } else {
+      this.token = tokenOrOptions.token;
+      this.robotAddress = tokenOrOptions.robotAddress;
+      this.secret = tokenOrOptions.secret;
+    }
+  }
 
   updateToken(token: string) {
     this.token = token;
   }
 
+  /** Returns the client's current bearer token (may have been refreshed at runtime). */
+  getToken(): string {
+    return this.token;
+  }
+
+  /** Returns true when this client can attempt a token refresh. */
+  canRefresh(): boolean {
+    return Boolean(this.robotAddress && this.secret);
+  }
+
+  /**
+   * Fetch a new JWT from the Wave token endpoint and update the internal token.
+   *
+   * The Wave server endpoint accepts GET with `robotAddress` and `secret`
+   * query parameters and returns the new JWT as a plain-text or JSON body.
+   *
+   * Throws if the request fails or the response body is empty.
+   */
+  async refreshToken(): Promise<void> {
+    if (!this.robotAddress || !this.secret) {
+      throw new Error('Cannot refresh token: robotAddress and secret are required');
+    }
+
+    const url = new URL(TOKEN_API_URL);
+    url.searchParams.set('robotAddress', this.robotAddress);
+    url.searchParams.set('secret', this.secret);
+
+    const res = await fetch(url.toString(), {
+      method: 'GET',
+      redirect: 'follow',
+      headers: { Accept: 'application/json, text/plain, */*' },
+    });
+
+    if (!res.ok) {
+      throw new Error(`Token refresh failed with status ${res.status}`);
+    }
+
+    const body = await res.text();
+    const trimmed = body.trim();
+    if (!trimmed) {
+      throw new Error('Token refresh returned an empty body');
+    }
+
+    // The endpoint may return a bare JWT string or a JSON object with a
+    // "token" / "access_token" / "jwt" field.
+    const JWT_RE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
+    let newToken: string;
+    if (trimmed.startsWith('{')) {
+      let json: Record<string, unknown>;
+      try {
+        json = JSON.parse(trimmed) as Record<string, unknown>;
+      } catch {
+        throw new Error('Token refresh failed: invalid JSON response');
+      }
+      const candidateRaw =
+        json['token'] ??
+        json['access_token'] ??
+        json['jwt'];
+      if (typeof candidateRaw !== 'string' || !candidateRaw) {
+        throw new Error('Token refresh failed: JSON did not contain a recognised token field');
+      }
+      if (!JWT_RE.test(candidateRaw)) {
+        throw new Error('Token refresh failed: JSON token field is not a valid JWT');
+      }
+      newToken = candidateRaw;
+    } else {
+      // Bare JWT — must be three base64url segments separated by dots
+      if (!JWT_RE.test(trimmed)) {
+        throw new Error('Token refresh failed: unexpected response format');
+      }
+      newToken = trimmed;
+    }
+
+    this.token = newToken;
+    console.log('[token] Token refreshed successfully');
+  }
+
   /** Send one or more JSON-RPC calls to the data API. */
-  private async rpc(requests: JsonRpcRequest[]): Promise<JsonRpcResponse[]> {
+  private async rpc(requests: JsonRpcRequest[], isRetry = false): Promise<JsonRpcResponse[]> {
+    // Snapshot the token at the moment this request is dispatched so we can
+    // detect whether a concurrent caller already refreshed it by the time we
+    // receive a 401 response.
+    const tokenAtDispatch = this.token;
     const res = await fetch(DATA_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${this.token}`,
+        Authorization: `Bearer ${tokenAtDispatch}`,
       },
       body: JSON.stringify(requests),
     });
+
+    if (res.status === 401 && this.canRefresh() && !isRetry) {
+      if (this.token !== tokenAtDispatch) {
+        // A concurrent caller already finished a refresh and updated this.token.
+        // No need to refresh again — just retry with the new token.
+        console.log('[token] Token already updated by concurrent refresh — retrying...');
+      } else if (this.refreshPromise) {
+        // A refresh is already in-flight (started by another concurrent 401).
+        // Await the shared promise so we don't issue a duplicate request.
+        console.log('[token] Received 401 — awaiting in-flight token refresh...');
+        await this.refreshPromise;
+      } else {
+        // No refresh in-flight and token still stale — start one.
+        console.log('[token] Received 401 — attempting token refresh...');
+        this.refreshPromise = this.refreshToken().finally(() => {
+          this.refreshPromise = null;
+        });
+        await this.refreshPromise;
+      }
+      // Retry once with the refreshed token; isRetry=true prevents infinite loops.
+      return this.rpc(requests, true);
+    }
 
     if (!res.ok) {
       const text = await res.text();
