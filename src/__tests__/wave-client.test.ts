@@ -450,6 +450,36 @@ describe('WaveClient', () => {
       // 5 fetch calls: 2 initial RPCs + 1 token refresh + 2 retries (not 6 = no double refresh)
       expect(fetchMock).toHaveBeenCalledTimes(5);
     });
+
+    it('skips a redundant refresh when token was updated by a concurrent caller during in-flight request', async () => {
+      // Scenario: RPC dispatched with token T1 (tokenAtDispatch = T1).
+      // While the request is in-flight, a concurrent caller refreshes the token to T2.
+      // The 401 response arrives — but this.token is now T2 ≠ T1, so no new refresh.
+      const staleToken = 'stale.jwt.token';
+      const newToken = 'concurrent.refreshed.token';
+      const mockData = { waveletData: {}, blips: {}, threads: {} };
+
+      const client = new WaveClient({ token: staleToken, robotAddress: 'bot@supawave.ai', secret: 'sec' });
+
+      // The fetch mock updates the token (simulating a concurrent refresh) and
+      // then returns 401 — by the time rpc() checks this.token it will be newToken.
+      fetchMock.mockImplementationOnce(async () => {
+        client.updateToken(newToken);
+        return { ok: false, status: 401, text: async () => 'Unauthorized' };
+      });
+      // Retry with the already-updated token succeeds — no /token refresh call.
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => [{ id: 'fetch-1', data: mockData }],
+        text: async () => JSON.stringify([{ id: 'fetch-1', data: mockData }]),
+      });
+
+      const result = await client.fetchWave(WAVE_ID);
+      expect(result).toEqual(mockData);
+      // Exactly 2 fetch calls: 1 initial RPC (401) + 1 retry — NO token refresh endpoint call.
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
   });
 
   // ── refreshToken bare-string validation ──────────────────────

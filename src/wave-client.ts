@@ -170,29 +170,38 @@ export class WaveClient {
 
   /** Send one or more JSON-RPC calls to the data API. */
   private async rpc(requests: JsonRpcRequest[], isRetry = false): Promise<JsonRpcResponse[]> {
+    // Snapshot the token at the moment this request is dispatched so we can
+    // detect whether a concurrent caller already refreshed it by the time we
+    // receive a 401 response.
+    const tokenAtDispatch = this.token;
     const res = await fetch(DATA_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${this.token}`,
+        Authorization: `Bearer ${tokenAtDispatch}`,
       },
       body: JSON.stringify(requests),
     });
 
     if (res.status === 401 && this.canRefresh() && !isRetry) {
-      // Token expired — attempt one refresh then retry exactly once.
-      if (!this.refreshPromise) {
-        // No refresh in-flight — start one.
+      if (this.token !== tokenAtDispatch) {
+        // A concurrent caller already finished a refresh and updated this.token.
+        // No need to refresh again — just retry with the new token.
+        console.log('[token] Token already updated by concurrent refresh — retrying...');
+      } else if (this.refreshPromise) {
+        // A refresh is already in-flight (started by another concurrent 401).
+        // Await the shared promise so we don't issue a duplicate request.
+        console.log('[token] Received 401 — awaiting in-flight token refresh...');
+        await this.refreshPromise;
+      } else {
+        // No refresh in-flight and token still stale — start one.
         console.log('[token] Received 401 — attempting token refresh...');
         this.refreshPromise = this.refreshToken().finally(() => {
           this.refreshPromise = null;
         });
-      } else {
-        // Another caller already started a refresh — await the same promise.
-        console.log('[token] Received 401 — awaiting in-flight token refresh...');
+        await this.refreshPromise;
       }
-      await this.refreshPromise;
-      // Retry once with the new token; pass isRetry=true so a second 401 throws immediately.
+      // Retry once with the refreshed token; isRetry=true prevents infinite loops.
       return this.rpc(requests, true);
     }
 
