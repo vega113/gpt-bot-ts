@@ -108,6 +108,18 @@ describe('sanitizeLlmResponse', () => {
     expect(sanitizeLlmResponse(input)).toBe('Line 1\nLine 2\nLine 3');
   });
 
+  it('preserves leading indentation of the line after collapsed blank lines', () => {
+    // 3+ consecutive blank lines before an indented line must not strip the indent
+    const input = 'A\n\n\n  indented code';
+    expect(sanitizeLlmResponse(input)).toBe('A\n\n  indented code');
+  });
+
+  it('collapses whitespace-only blank lines without stripping next line indent', () => {
+    // Blank lines may themselves contain spaces; the next line's indent must survive
+    const input = 'A\n  \n  \n  indented';
+    expect(sanitizeLlmResponse(input)).toBe('A\n\n  indented');
+  });
+
   // ── Whitespace trimming ────────────────────────────────────────
 
   it('trims leading whitespace', () => {

@@ -47,7 +47,10 @@ export function sanitizeLlmResponse(text: string): string {
   // 3. Collapse 3+ consecutive blank lines → 1 blank line (i.e. at most one
   //    empty line between paragraphs).  A "blank line" is a line that contains
   //    only whitespace.
-  result = result.replace(/(\n[ \t]*){3,}/g, '\n\n');
+  //    Pattern: one leading \n, then 2+ repetitions of (optional whitespace + \n).
+  //    This avoids consuming the leading indentation of the next content line,
+  //    which the naive /(\n[ \t]*){3,}/ pattern would swallow.
+  result = result.replace(/\n([ \t]*\n){2,}/g, '\n\n');
 
   // 4. Trim the whole string
   result = result.trim();
