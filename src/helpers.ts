@@ -38,7 +38,7 @@ export interface EventMessageBundle {
   blips: Record<string, BlipData>;
   threads: Record<string, { id: string; blipIds: string[] }>;
   robotAddress: string;
-  rpcServerUrl: string;
+  rpcServerUrl?: string;
 }
 
 // ── pure helpers ─────────────────────────────────────────────
@@ -59,9 +59,9 @@ export function isValidBundle(body: unknown): body is EventMessageBundle {
 
   if (!Array.isArray(b['events'])) return false;
   if (b['blips'] == null || typeof b['blips'] !== 'object') return false;
-  if (b['threads'] == null || typeof b['threads'] !== 'object') return false;
+  if (b['threads'] != null && typeof b['threads'] !== 'object') return false;
   if (typeof b['robotAddress'] !== 'string') return false;
-  if (typeof b['rpcServerUrl'] !== 'string') return false;
+  if (b['rpcServerUrl'] != null && typeof b['rpcServerUrl'] !== 'string') return false;
 
   const wavelet = b['wavelet'];
   if (wavelet == null || typeof wavelet !== 'object') return false;
@@ -76,7 +76,8 @@ export function isValidBundle(body: unknown): body is EventMessageBundle {
   ) return false;
 
   // Validate each thread entry matches { id: string; blipIds: string[] }
-  return Object.values(b['threads'] as Record<string, unknown>).every((t) => {
+  const threads = (b['threads'] ?? {}) as Record<string, unknown>;
+  return Object.values(threads).every((t) => {
     if (!t || typeof t !== 'object') return false;
     const thread = t as Record<string, unknown>;
     return (

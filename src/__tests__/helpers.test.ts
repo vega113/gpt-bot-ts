@@ -109,9 +109,13 @@ describe('isValidBundle', () => {
     expect(isValidBundle(rest)).toBe(false);
   });
 
-  it('returns false when threads is missing', () => {
+  it('returns true when threads is missing (treated as {})', () => {
     const { threads: _, ...rest } = validBundle;
-    expect(isValidBundle(rest)).toBe(false);
+    expect(isValidBundle(rest)).toBe(true);
+  });
+
+  it('returns false when threads is present but not an object', () => {
+    expect(isValidBundle({ ...validBundle, threads: 'bad' })).toBe(false);
   });
 
   it('returns false when robotAddress is missing', () => {
@@ -119,9 +123,13 @@ describe('isValidBundle', () => {
     expect(isValidBundle(rest)).toBe(false);
   });
 
-  it('returns false when rpcServerUrl is missing', () => {
+  it('returns true when rpcServerUrl is missing (optional field)', () => {
     const { rpcServerUrl: _, ...rest } = validBundle;
-    expect(isValidBundle(rest)).toBe(false);
+    expect(isValidBundle(rest)).toBe(true);
+  });
+
+  it('returns false when rpcServerUrl is present but not a string', () => {
+    expect(isValidBundle({ ...validBundle, rpcServerUrl: 42 })).toBe(false);
   });
 
   it('returns false when wavelet is missing', () => {
