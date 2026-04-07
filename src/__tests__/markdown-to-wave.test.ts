@@ -73,6 +73,20 @@ describe('markdownToWave — bold', () => {
     expect(content).toBe('Say hello now');
     expect(annotations).toContainEqual(ann('style/fontWeight', 'bold', 4, 9));
   });
+
+  it('does NOT treat __dunder__ inside a word as bold (Python dunder methods)', () => {
+    const { content, annotations } = markdownToWave('my__init__method');
+    expect(content).toBe('my__init__method');
+    expect(annotations).toHaveLength(0);
+  });
+
+  it('does NOT treat __private__ as bold when adjacent to word chars', () => {
+    const { content, annotations } = markdownToWave('call __init__()');
+    // __ at start of word "init" — opening __ is at word boundary (preceded by space)
+    // and closing __ is followed by "(" (non-word) → this SHOULD match as bold
+    expect(content).toBe('call init()');
+    expect(annotations).toContainEqual(ann('style/fontWeight', 'bold', 5, 9));
+  });
 });
 
 // ── italic ────────────────────────────────────────────────────
@@ -178,6 +192,34 @@ describe('markdownToWave — links', () => {
   it('drops unsafe link schemes (data:)', () => {
     const { annotations } = markdownToWave('[x](data:text/html,<h1>hi</h1>)');
     expect(annotations.filter((a) => a.name === 'link/manual')).toHaveLength(0);
+  });
+});
+
+// ── backslash escapes ─────────────────────────────────────────
+
+describe('markdownToWave — backslash escapes', () => {
+  it('renders \\* as literal * (not italic)', () => {
+    const { content, annotations } = markdownToWave('\\*literal\\*');
+    expect(content).toBe('*literal*');
+    expect(annotations).toHaveLength(0);
+  });
+
+  it('renders \\_ as literal _ (not italic)', () => {
+    const { content, annotations } = markdownToWave('\\_not italic\\_');
+    expect(content).toBe('_not italic_');
+    expect(annotations).toHaveLength(0);
+  });
+
+  it('renders \\[label](url) as plain text (not a link)', () => {
+    const { content, annotations } = markdownToWave('\\[click](https://example.com)');
+    expect(content).toBe('[click](https://example.com)');
+    expect(annotations.filter((a) => a.name === 'link/manual')).toHaveLength(0);
+  });
+
+  it('does not affect adjacent non-escaped tokens', () => {
+    const { content, annotations } = markdownToWave('\\* and **bold**');
+    expect(content).toBe('* and bold');
+    expect(annotations).toContainEqual(ann('style/fontWeight', 'bold', 6, 10));
   });
 });
 

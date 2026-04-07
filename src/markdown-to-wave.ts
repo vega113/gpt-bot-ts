@@ -56,6 +56,30 @@ interface Span {
  *   [text](url)
  *   plain text
  */
+/**
+ * Replace `\X` escape sequences with private-use-area placeholders so the
+ * inline regex never sees the escaped delimiter characters.
+ * Restored by `unescapeSpan` after spans are collected.
+ */
+const ESCAPED_CHARS = '*_`[]()\\' as const;
+const CHAR_TO_PLACEHOLDER: Record<string, string> = {};
+const PLACEHOLDER_TO_CHAR: Record<string, string> = {};
+for (let i = 0; i < ESCAPED_CHARS.length; i++) {
+  const ch = ESCAPED_CHARS[i];
+  const ph = `\uE700${String.fromCodePoint(0xE700 + i)}`;  // two private-use chars
+  CHAR_TO_PLACEHOLDER[ch] = ph;
+  PLACEHOLDER_TO_CHAR[ph] = ch;
+}
+const ESCAPE_RE = /\\([*_`\[\]()\\/])/g;
+const PLACEHOLDER_RE = /\uE700[\uE700-\uE7FF]/g;
+
+function encodeEscapes(s: string): string {
+  return s.replace(ESCAPE_RE, (_, ch: string) => CHAR_TO_PLACEHOLDER[ch] ?? ch);
+}
+function decodeEscapes(s: string): string {
+  return s.replace(PLACEHOLDER_RE, (ph) => PLACEHOLDER_TO_CHAR[ph] ?? ph);
+}
+
 function parseInline(text: string): Span[] {
   const spans: Span[] = [];
 
@@ -63,57 +87,66 @@ function parseInline(text: string): Span[] {
   // This is enforced here (at the source) rather than relying solely on callers.
   const SAFE_URL_RE = /^https?:\/\/|^mailto:/i;
 
+  // Encode backslash-escaped delimiters so the regex below never matches them.
+  // e.g. `\*literal\*` → placeholders → not matched as italic → decoded back to `*literal*`
+  const encoded = encodeEscapes(text);
+
   // Single regex that matches all inline tokens, left-to-right.
   // Groups:
   //   1 — full match (unused)
   //   2 — ***bold italic*** content
-  //   3 — **bold** / __bold__ content
-  //   4 — *italic* content — content-boundary-aware: leading/trailing char must be
-  //       non-whitespace so `2 * 3 * 4` (spaces around *) is NOT treated as italic
-  //   5 — _italic_ content — word-boundary-aware: (?<!\w) / (?!\w) so
+  //   3 — **bold** content
+  //   4 — __bold__ content — word-boundary-aware ((?<!\w) / (?!\w)) so
+  //       `my__init__method` is NOT treated as bold
+  //   5 — *italic* content — content-boundary-aware: leading/trailing char must be
+  //       non-whitespace so `2 * 3 * 4` and `ls *.ts` are NOT treated as italic
+  //   6 — _italic_ content — word-boundary-aware: (?<!\w) / (?!\w) so
   //       snake_case identifiers like set_user_name are NOT treated as italic
-  //   6 — `code` content
-  //   7 — [link] text
-  //   8 — (link) url — allows one level of balanced parens for Wikipedia-style URLs
+  //   7 — `code` content
+  //   8 — [link] text
+  //   9 — (link) url — allows one level of balanced parens for Wikipedia-style URLs
   const inlineRx =
-    /(\*\*\*(.+?)\*\*\*|(?:\*\*|__)(.+?)(?:\*\*|__)|\*([^\s*][^*\n]*[^\s*]|[^\s*])\*|(?<!\w)_(.+?)_(?!\w)|`(.+?)`|\[([^\]]+)\]\(((?:[^()]+|\([^()]*\))*)\))/gs;
+    /(\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|(?<!\w)__(.+?)__(?!\w)|\*([^\s*][^*\n]*[^\s*]|[^\s*])\*|(?<!\w)_(.+?)_(?!\w)|`(.+?)`|\[([^\]]+)\]\(((?:[^()]+|\([^()]*\))*)\))/gs;
 
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
-  while ((match = inlineRx.exec(text)) !== null) {
-    // Plain text before this token
+  while ((match = inlineRx.exec(encoded)) !== null) {
+    // Plain text before this token — decode escape placeholders back to literals
     if (match.index > lastIndex) {
-      spans.push({ text: text.slice(lastIndex, match.index), bold: false, italic: false });
+      spans.push({ text: decodeEscapes(encoded.slice(lastIndex, match.index)), bold: false, italic: false });
     }
 
     if (match[2] !== undefined) {
       // ***bold italic***
-      spans.push({ text: match[2], bold: true, italic: true });
+      spans.push({ text: decodeEscapes(match[2]), bold: true, italic: true });
     } else if (match[3] !== undefined) {
-      // **bold** or __bold__
-      spans.push({ text: match[3], bold: true, italic: false });
+      // **bold**
+      spans.push({ text: decodeEscapes(match[3]), bold: true, italic: false });
     } else if (match[4] !== undefined) {
-      // *italic* (content starts/ends with non-whitespace)
-      spans.push({ text: match[4], bold: false, italic: true });
+      // __bold__ (word-boundary-aware — intraword __ not matched)
+      spans.push({ text: decodeEscapes(match[4]), bold: true, italic: false });
     } else if (match[5] !== undefined) {
-      // _italic_ (word-boundary-aware)
-      spans.push({ text: match[5], bold: false, italic: true });
+      // *italic* (content starts/ends with non-whitespace)
+      spans.push({ text: decodeEscapes(match[5]), bold: false, italic: true });
     } else if (match[6] !== undefined) {
+      // _italic_ (word-boundary-aware)
+      spans.push({ text: decodeEscapes(match[6]), bold: false, italic: true });
+    } else if (match[7] !== undefined) {
       // `code` — strip backticks, no annotation
-      spans.push({ text: match[6], bold: false, italic: false });
-    } else if (match[7] !== undefined && match[8] !== undefined) {
+      spans.push({ text: decodeEscapes(match[7]), bold: false, italic: false });
+    } else if (match[8] !== undefined && match[9] !== undefined) {
       // [link text](url) — only annotate safe schemes
-      const url = match[8];
-      spans.push({ text: match[7], bold: false, italic: false, link: SAFE_URL_RE.test(url) ? url : undefined });
+      const url = decodeEscapes(match[9]);
+      spans.push({ text: decodeEscapes(match[8]), bold: false, italic: false, link: SAFE_URL_RE.test(url) ? url : undefined });
     }
 
     lastIndex = match.index + match[0].length;
   }
 
   // Remaining plain text
-  if (lastIndex < text.length) {
-    spans.push({ text: text.slice(lastIndex), bold: false, italic: false });
+  if (lastIndex < encoded.length) {
+    spans.push({ text: decodeEscapes(encoded.slice(lastIndex)), bold: false, italic: false });
   }
 
   return spans;
