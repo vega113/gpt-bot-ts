@@ -87,6 +87,18 @@ describe('markdownToWave — bold', () => {
     expect(content).toBe('call init()');
     expect(annotations).toContainEqual(ann('style/fontWeight', 'bold', 5, 9));
   });
+
+  it('does NOT treat spaced double-asterisks as bold (exponent operator: 2 ** 3 ** 2)', () => {
+    const { content, annotations } = markdownToWave('Result: 2 ** 3 ** 2');
+    expect(content).toBe('Result: 2 ** 3 ** 2');
+    expect(annotations).toHaveLength(0);
+  });
+
+  it('does NOT treat ** followed by space as bold', () => {
+    const { content, annotations } = markdownToWave('** not bold **');
+    expect(content).toBe('** not bold **');
+    expect(annotations).toHaveLength(0);
+  });
 });
 
 // ── italic ────────────────────────────────────────────────────

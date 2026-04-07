@@ -95,7 +95,8 @@ function parseInline(text: string): Span[] {
   // Groups:
   //   1 — full match (unused)
   //   2 — ***bold italic*** content
-  //   3 — **bold** content
+  //   3 — **bold** content — content-boundary-aware: leading/trailing char must be
+  //       non-whitespace so `2 ** 3 ** 2` (exponent operator) is NOT treated as bold
   //   4 — __bold__ content — word-boundary-aware ((?<!\w) / (?!\w)) so
   //       `my__init__method` is NOT treated as bold
   //   5 — *italic* content — content-boundary-aware: leading/trailing char must be
@@ -106,7 +107,7 @@ function parseInline(text: string): Span[] {
   //   8 — [link] text
   //   9 — (link) url — allows one level of balanced parens for Wikipedia-style URLs
   const inlineRx =
-    /(\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|(?<!\w)__(.+?)__(?!\w)|\*([^\s*][^*\n]*[^\s*]|[^\s*])\*|(?<!\w)_(.+?)_(?!\w)|`(.+?)`|\[([^\]]+)\]\(((?:[^()]+|\([^()]*\))*)\))/gs;
+    /(\*\*\*(.+?)\*\*\*|\*\*([^\s*][^*\n]*[^\s]|[^\s*])\*\*|(?<!\w)__(.+?)__(?!\w)|\*([^\s*][^*\n]*[^\s*]|[^\s*])\*|(?<!\w)_(.+?)_(?!\w)|`(.+?)`|\[([^\]]+)\]\(((?:[^()]+|\([^()]*\))*)\))/gs;
 
   let lastIndex = 0;
   let match: RegExpExecArray | null;
