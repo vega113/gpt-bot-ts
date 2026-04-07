@@ -141,8 +141,13 @@ export async function processMessage({
     // Strip citation markers and normalize whitespace before the response
     // reaches the Wave UI. OpenAI web-search injects inline source references
     // like 【turn0finance0】 that render as garbled text in Wave blips.
-    if (decision.response) {
-      decision.response = sanitizeLlmResponse(decision.response);
+    // Use an explicit null check so we also sanitize empty strings.
+    if (decision.response !== null) {
+      const sanitized = sanitizeLlmResponse(decision.response);
+      // If sanitization reduces the response to an empty string (e.g. the
+      // model returned only citation markers), fall back to a safe message
+      // so the bot never posts a blank reply.
+      decision.response = sanitized || 'I had trouble generating a response. Please try again.';
     }
     return decision;
   }

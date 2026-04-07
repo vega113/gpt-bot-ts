@@ -48,6 +48,22 @@ describe('sanitizeLlmResponse', () => {
     expect(sanitizeLlmResponse('Note.CITEturn0finance0 here.')).toBe('Note here.');
   });
 
+  // ── Regression: normal words containing "cite" must not be stripped ───
+  it('does not strip the word "cited" from normal prose', () => {
+    const input = 'As cited in the report, the study was influential.';
+    expect(sanitizeLlmResponse(input)).toBe(input);
+  });
+
+  it('does not strip the word "cite" used as a verb', () => {
+    const input = 'Please cite your sources.';
+    expect(sanitizeLlmResponse(input)).toBe(input);
+  });
+
+  it('does not strip "incited" from normal prose', () => {
+    const input = 'The speech incited the crowd.';
+    expect(sanitizeLlmResponse(input)).toBe(input);
+  });
+
   // ── Blank line normalization ───────────────────────────────────
 
   it('collapses three consecutive blank lines to two', () => {
