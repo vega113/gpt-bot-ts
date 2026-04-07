@@ -1,9 +1,13 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import { WaveClient } from '../wave-client.js';
 
 // Mock global fetch
 const fetchMock = vi.fn();
 vi.stubGlobal('fetch', fetchMock);
+
+afterAll(() => {
+  vi.unstubAllGlobals();
+});
 
 function mockJsonResponse(data: unknown, ok = true, status = 200) {
   fetchMock.mockResolvedValueOnce({

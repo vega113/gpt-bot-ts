@@ -43,10 +43,13 @@ export interface EventMessageBundle {
 
 // ── pure helpers ─────────────────────────────────────────────
 
-/** Check if a blip mentions the bot by @-mention. */
+/** Check if a blip mentions the bot by @-mention (boundary-aware). */
 export function mentionsBot(content: string, robotAddress: string): boolean {
   const name = robotAddress.split('@')[0];
-  return content.includes(`@${name}`) || content.includes(robotAddress);
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const mentionRx = new RegExp(`(^|\\s)@${esc(name)}(?=\\s|$|[.,!?;:])`);
+  const addressRx = new RegExp(`(^|\\s)${esc(robotAddress)}(?=\\s|$|[.,!?;:])`);
+  return mentionRx.test(content) || addressRx.test(content);
 }
 
 /** Validate that the request body looks like an EventMessageBundle. */
@@ -57,16 +60,31 @@ export function isValidBundle(body: unknown): body is EventMessageBundle {
   if (!Array.isArray(b['events'])) return false;
   if (b['blips'] == null || typeof b['blips'] !== 'object') return false;
   if (b['threads'] == null || typeof b['threads'] !== 'object') return false;
+  if (typeof b['robotAddress'] !== 'string') return false;
+  if (typeof b['rpcServerUrl'] !== 'string') return false;
 
   const wavelet = b['wavelet'];
   if (wavelet == null || typeof wavelet !== 'object') return false;
   const w = wavelet as Record<string, unknown>;
-  return (
-    typeof w['waveId'] === 'string' &&
-    typeof w['waveletId'] === 'string' &&
-    typeof w['rootBlipId'] === 'string' &&
-    Array.isArray(w['participants'])
-  );
+  if (
+    typeof w['waveId'] !== 'string' ||
+    typeof w['waveletId'] !== 'string' ||
+    typeof w['rootBlipId'] !== 'string' ||
+    typeof w['title'] !== 'string' ||
+    !Array.isArray(w['participants']) ||
+    !(w['participants'] as unknown[]).every((p) => typeof p === 'string')
+  ) return false;
+
+  // Validate each thread entry matches { id: string; blipIds: string[] }
+  return Object.values(b['threads'] as Record<string, unknown>).every((t) => {
+    if (!t || typeof t !== 'object') return false;
+    const thread = t as Record<string, unknown>;
+    return (
+      typeof thread['id'] === 'string' &&
+      Array.isArray(thread['blipIds']) &&
+      (thread['blipIds'] as unknown[]).every((id) => typeof id === 'string')
+    );
+  });
 }
 
 /**

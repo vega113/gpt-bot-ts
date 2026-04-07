@@ -40,12 +40,20 @@ function makeBlip(overrides: Partial<BlipData> = {}): BlipData {
 describe('mentionsBot', () => {
   const addr = 'gpt-ts-bot@supawave.ai';
 
-  it('returns true when message contains @botname', () => {
+  it('returns true when @botname is mid-sentence', () => {
     expect(mentionsBot('hey @gpt-ts-bot what is 2+2?', addr)).toBe(true);
   });
 
+  it('returns true when @botname is at start of message', () => {
+    expect(mentionsBot('@gpt-ts-bot please help', addr)).toBe(true);
+  });
+
+  it('returns true when @botname is at end of message', () => {
+    expect(mentionsBot('hello @gpt-ts-bot', addr)).toBe(true);
+  });
+
   it('returns true when message contains full robot address', () => {
-    expect(mentionsBot(`hello gpt-ts-bot@supawave.ai`, addr)).toBe(true);
+    expect(mentionsBot('hello gpt-ts-bot@supawave.ai', addr)).toBe(true);
   });
 
   it('returns false when message has no mention', () => {
@@ -59,6 +67,10 @@ describe('mentionsBot', () => {
   it('is case-sensitive', () => {
     expect(mentionsBot('@GPT-TS-BOT', addr)).toBe(false);
   });
+
+  it('does not false-positive on a longer handle (@gpt-ts-bot-foo)', () => {
+    expect(mentionsBot('hey @gpt-ts-bot-foo do this', addr)).toBe(false);
+  });
 });
 
 // ── isValidBundle ─────────────────────────────────────────────
@@ -68,11 +80,14 @@ describe('isValidBundle', () => {
     events: [],
     blips: {},
     threads: {},
+    robotAddress: 'gpt-ts-bot@supawave.ai',
+    rpcServerUrl: 'https://supawave.ai',
     wavelet: {
       waveId: 'wave1',
       waveletId: 'wave1!conv+root',
       rootBlipId: 'root-blip',
-      participants: [],
+      title: 'Test Wave',
+      participants: ['user@supawave.ai'],
     },
   };
 
@@ -99,6 +114,16 @@ describe('isValidBundle', () => {
     expect(isValidBundle(rest)).toBe(false);
   });
 
+  it('returns false when robotAddress is missing', () => {
+    const { robotAddress: _, ...rest } = validBundle;
+    expect(isValidBundle(rest)).toBe(false);
+  });
+
+  it('returns false when rpcServerUrl is missing', () => {
+    const { rpcServerUrl: _, ...rest } = validBundle;
+    expect(isValidBundle(rest)).toBe(false);
+  });
+
   it('returns false when wavelet is missing', () => {
     expect(isValidBundle({ events: [], blips: {}, threads: {} })).toBe(false);
   });
@@ -112,12 +137,32 @@ describe('isValidBundle', () => {
     expect(isValidBundle({ ...validBundle, wavelet })).toBe(false);
   });
 
+  it('returns false when title is missing', () => {
+    const { title: _, ...wavelet } = validBundle.wavelet;
+    expect(isValidBundle({ ...validBundle, wavelet })).toBe(false);
+  });
+
   it('returns false when participants is not an array', () => {
     expect(isValidBundle({ ...validBundle, wavelet: { ...validBundle.wavelet, participants: {} } })).toBe(false);
   });
 
-  it('returns true for a valid bundle', () => {
+  it('returns false when participants contains non-strings', () => {
+    expect(isValidBundle({ ...validBundle, wavelet: { ...validBundle.wavelet, participants: [42] } })).toBe(false);
+  });
+
+  it('returns false when a thread entry is malformed', () => {
+    expect(isValidBundle({ ...validBundle, threads: { t1: { id: 'x', blipIds: [42] } } })).toBe(false);
+  });
+
+  it('returns true for a valid bundle with empty threads', () => {
     expect(isValidBundle(validBundle)).toBe(true);
+  });
+
+  it('returns true for a valid bundle with well-formed threads', () => {
+    expect(isValidBundle({
+      ...validBundle,
+      threads: { root: { id: 'root', blipIds: ['blip1'] } },
+    })).toBe(true);
   });
 });
 
