@@ -70,6 +70,42 @@ describe('WaveClient', () => {
     });
   });
 
+  describe('annotations offset (via appendBlip)', () => {
+    it('offsets annotation ranges by 1 when content does not start with newline', async () => {
+      mockJsonResponse([{ id: 'append-1', data: null }]);
+      const client = new WaveClient(TOKEN);
+      const anns = [{ name: 'style/fontWeight', value: 'bold', range: { start: 0, end: 5 } }];
+      await client.appendBlip(WAVE_ID, 'Hello world', WAVELET_ID, anns);
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+      expect(body[0].params.blipData.content).toBe('\nHello world');
+      expect(body[0].params.blipData.annotations).toEqual([
+        { name: 'style/fontWeight', value: 'bold', range: { start: 1, end: 6 } },
+      ]);
+    });
+
+    it('does not offset annotation ranges when content already starts with newline', async () => {
+      mockJsonResponse([{ id: 'append-1', data: null }]);
+      const client = new WaveClient(TOKEN);
+      const anns = [{ name: 'style/fontWeight', value: 'bold', range: { start: 1, end: 6 } }];
+      await client.appendBlip(WAVE_ID, '\nHello world', WAVELET_ID, anns);
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+      expect(body[0].params.blipData.annotations).toEqual([
+        { name: 'style/fontWeight', value: 'bold', range: { start: 1, end: 6 } },
+      ]);
+    });
+
+    it('omits annotations field when no annotations provided', async () => {
+      mockJsonResponse([{ id: 'append-1', data: null }]);
+      const client = new WaveClient(TOKEN);
+      await client.appendBlip(WAVE_ID, 'plain text', WAVELET_ID);
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+      expect(body[0].params.blipData.annotations).toBeUndefined();
+    });
+  });
+
   describe('appendBlip', () => {
     it('calls the data API with correct method and auth header', async () => {
       mockJsonResponse([{ id: 'append-1', data: null }]);
@@ -114,6 +150,18 @@ describe('WaveClient', () => {
       expect(body[0].params.blipId).toBe('parent-blip-id');
     });
 
+    it('forwards annotations with offset to blipData', async () => {
+      mockJsonResponse([{ id: 'reply-1', data: null }]);
+      const client = new WaveClient(TOKEN);
+      const anns = [{ name: 'style/fontWeight', value: 'bold', range: { start: 0, end: 5 } }];
+      await client.replyToBlip(WAVE_ID, 'parent', 'Hello world', WAVELET_ID, anns);
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+      expect(body[0].params.blipData.annotations).toEqual([
+        { name: 'style/fontWeight', value: 'bold', range: { start: 1, end: 6 } },
+      ]);
+    });
+
     it('throws when API returns an error', async () => {
       mockJsonResponse([{ id: 'reply-1', error: { code: 404, message: 'Blip not found' } }]);
       const client = new WaveClient(TOKEN);
@@ -132,6 +180,18 @@ describe('WaveClient', () => {
       const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
       expect(body[0].method).toBe('blip.continueThread');
       expect(body[0].params.blipId).toBe('sibling-blip');
+    });
+
+    it('forwards annotations with offset to blipData', async () => {
+      mockJsonResponse([{ id: 'continue-1', data: null }]);
+      const client = new WaveClient(TOKEN);
+      const anns = [{ name: 'style/fontStyle', value: 'italic', range: { start: 2, end: 7 } }];
+      await client.continueThread(WAVE_ID, 'sibling', 'continuation', WAVELET_ID, anns);
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+      expect(body[0].params.blipData.annotations).toEqual([
+        { name: 'style/fontStyle', value: 'italic', range: { start: 3, end: 8 } },
+      ]);
     });
   });
 

@@ -59,6 +59,7 @@ export function isValidBundle(body: unknown): body is EventMessageBundle {
 
   if (!Array.isArray(b['events'])) return false;
   if (b['blips'] == null || typeof b['blips'] !== 'object') return false;
+  // `threads` is optional — absent is treated as {} (consistent with isBlipInThread's nullish coalesce)
   if (b['threads'] != null && typeof b['threads'] !== 'object') return false;
   if (typeof b['robotAddress'] !== 'string') return false;
   if (b['rpcServerUrl'] != null && typeof b['rpcServerUrl'] !== 'string') return false;
@@ -75,7 +76,7 @@ export function isValidBundle(body: unknown): body is EventMessageBundle {
     !(w['participants'] as unknown[]).every((p) => typeof p === 'string')
   ) return false;
 
-  // Validate each thread entry matches { id: string; blipIds: string[] }
+  // Validate each thread entry matches { id: string; blipIds: string[] } when present
   const threads = (b['threads'] ?? {}) as Record<string, unknown>;
   return Object.values(threads).every((t) => {
     if (!t || typeof t !== 'object') return false;
