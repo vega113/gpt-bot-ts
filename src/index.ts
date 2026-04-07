@@ -25,6 +25,7 @@ import {
   isBlipInThread,
 } from './helpers.js';
 import type { BlipData, EventMessageBundle } from './helpers.js';
+import { markdownToWave } from './markdown-to-wave.js';
 
 // ── config ───────────────────────────────────────────────────
 
@@ -215,11 +216,13 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
   // Post reply contextually:
   // - If user's blip is in a thread → continue that thread
   // - Otherwise → reply to the user's blip (creates a child thread)
-  const postReply = async (content: string) => {
+  // Markdown is converted to Wave annotations so formatting renders correctly.
+  const postReply = async (markdown: string) => {
+    const { content, annotations } = markdownToWave(markdown);
     if (isInThread) {
-      await waveClient.continueThread(waveId, blip.blipId, content, waveletId);
+      await waveClient.continueThread(waveId, blip.blipId, content, waveletId, annotations);
     } else {
-      await waveClient.replyToBlip(waveId, blip.blipId, content, waveletId);
+      await waveClient.replyToBlip(waveId, blip.blipId, content, waveletId, annotations);
     }
   };
 

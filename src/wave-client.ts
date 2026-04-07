@@ -5,6 +5,8 @@
  * Bearer token auth.
  */
 
+import type { WaveAnnotation } from './markdown-to-wave.js';
+
 const DATA_API_URL = 'https://supawave.ai/robot/dataapi/rpc';
 
 // ── types ────────────────────────────────────────────────────
@@ -84,6 +86,42 @@ export class WaveClient {
     return content.startsWith('\n') ? content : `\n${content}`;
   }
 
+  /**
+   * Offset annotation ranges by `delta` characters.
+   *
+   * Required because Wave blip content must start with `\n` (offset = 1).
+   * Annotations from `markdownToWave` are relative to the plain text without
+   * the leading newline, so all ranges must be shifted forward by 1.
+   */
+  private offsetAnnotations(
+    annotations: WaveAnnotation[],
+    delta: number,
+  ): WaveAnnotation[] {
+    return annotations.map((a) => ({
+      ...a,
+      range: { start: a.range.start + delta, end: a.range.end + delta },
+    }));
+  }
+
+  /**
+   * Build the blipData payload, including annotations if provided.
+   * The leading `\n` is added here, and annotation ranges are shifted by 1.
+   */
+  private buildBlipData(
+    blipId: string,
+    content: string,
+    annotations?: WaveAnnotation[],
+  ): Record<string, unknown> {
+    const finalContent = this.ensureNewline(content);
+    // Calculate how many chars were prepended (0 if content already started with \n)
+    const delta = finalContent.length - content.length;
+    const blipData: Record<string, unknown> = { blipId, content: finalContent };
+    if (annotations && annotations.length > 0) {
+      blipData['annotations'] = delta > 0 ? this.offsetAnnotations(annotations, delta) : annotations;
+    }
+    return blipData;
+  }
+
   /** Fetch full wave state (blips, threads, participants). */
   async fetchWave(waveId: string, waveletId?: string): Promise<FetchWaveResult> {
     const [response] = await this.rpc([
@@ -105,7 +143,12 @@ export class WaveClient {
   }
 
   /** Append a new blip to the root thread. */
-  async appendBlip(waveId: string, content: string, waveletId?: string): Promise<void> {
+  async appendBlip(
+    waveId: string,
+    content: string,
+    waveletId?: string,
+    annotations?: WaveAnnotation[],
+  ): Promise<void> {
     const [response] = await this.rpc([
       {
         id: 'append-1',
@@ -113,10 +156,7 @@ export class WaveClient {
         params: {
           waveId,
           waveletId: this.defaultWaveletId(waveId, waveletId),
-          blipData: {
-            blipId: `TBD_bot_${Date.now()}`,
-            content: this.ensureNewline(content),
-          },
+          blipData: this.buildBlipData(`TBD_bot_${Date.now()}`, content, annotations),
         },
       },
     ]);
@@ -132,6 +172,7 @@ export class WaveClient {
     parentBlipId: string,
     content: string,
     waveletId?: string,
+    annotations?: WaveAnnotation[],
   ): Promise<void> {
     const [response] = await this.rpc([
       {
@@ -141,10 +182,7 @@ export class WaveClient {
           waveId,
           waveletId: this.defaultWaveletId(waveId, waveletId),
           blipId: parentBlipId,
-          blipData: {
-            blipId: `TBD_reply_${Date.now()}`,
-            content: this.ensureNewline(content),
-          },
+          blipData: this.buildBlipData(`TBD_reply_${Date.now()}`, content, annotations),
         },
       },
     ]);
@@ -160,6 +198,7 @@ export class WaveClient {
     siblingBlipId: string,
     content: string,
     waveletId?: string,
+    annotations?: WaveAnnotation[],
   ): Promise<void> {
     const [response] = await this.rpc([
       {
@@ -169,10 +208,7 @@ export class WaveClient {
           waveId,
           waveletId: this.defaultWaveletId(waveId, waveletId),
           blipId: siblingBlipId,
-          blipData: {
-            blipId: `TBD_cont_${Date.now()}`,
-            content: this.ensureNewline(content),
-          },
+          blipData: this.buildBlipData(`TBD_cont_${Date.now()}`, content, annotations),
         },
       },
     ]);
