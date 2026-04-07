@@ -12,8 +12,9 @@
  *
  * Operations performed (in order):
  *  1. Remove Unicode bracket citations matching the known OpenAI artifact shape:
- *     【turn<digits><alphanum/dagger chars>】 (e.g. 【turn0finance0】,
- *     【turn0search0†source】). Full-width brackets containing other content
+ *     【turn<digits><alphanum/hyphen/dagger chars>】 (e.g. 【turn0finance0】,
+ *     【turn0search0†source】, 【turn0finance0-source】). Full-width brackets
+ *     containing other content
  *     (e.g. CJK prose) are left intact.
  *  2. Remove leaked ASCII cite tokens   .citeXXX  (e.g. .citeturn0finance0)
  *  3. Collapse runs of 3+ consecutive blank lines down to 1 blank line
@@ -30,16 +31,18 @@ export function sanitizeLlmResponse(text: string): string {
 
   // 1. Strip Unicode bracket citations matching the known OpenAI artifact shape:
   //    【turn<digits><optional alphanumeric/dagger suffix>】
-  //    e.g. 【turn0finance0】, 【turn1search0†source】
+  //    e.g. 【turn0finance0】, 【turn1search0†source】, 【turn0finance0-source】
   //    This avoids stripping arbitrary CJK prose or other valid uses of 【...】.
-  result = result.replace(/【turn\d+[a-z0-9†]*】/gi, '');
+  result = result.replace(/【turn\d+[-a-z0-9†]*】/gi, '');
 
   // 2. Strip ASCII-mangled cite tokens that match the known OpenAI artifact
   //    shape: an optional leading dot, then "citeturn", then digits, then an
-  //    optional alphanumeric suffix (e.g. .citeturn0finance0,
-  //    citeturn0search0source). This avoids removing normal words like
-  //    "cited" or "cite".
-  result = result.replace(/\.?citeturn\d+[a-z0-9]*\b/gi, '');
+  //    optional alphanumeric/hyphenated suffix (e.g. .citeturn0finance0,
+  //    citeturn0search0source, .citeturn0finance0-source). Using a character
+  //    class that includes hyphens and dropping the word-boundary anchor
+  //    ensures the full hyphenated suffix is consumed. This avoids removing
+  //    normal words like "cited" or "cite".
+  result = result.replace(/\.?citeturn\d+[-a-z0-9]*/gi, '');
 
   // 3. Collapse 3+ consecutive blank lines → 1 blank line (i.e. at most one
   //    empty line between paragraphs).  A "blank line" is a line that contains

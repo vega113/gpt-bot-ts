@@ -25,6 +25,16 @@ describe('sanitizeLlmResponse', () => {
     expect(sanitizeLlmResponse(input)).toBe('Revenue grew 12%, driven by cloud services.');
   });
 
+  it('strips bracket citation with hyphenated suffix (e.g. -source)', () => {
+    const input = 'Market data【turn0finance0-source】 confirms the trend.';
+    expect(sanitizeLlmResponse(input)).toBe('Market data confirms the trend.');
+  });
+
+  it('strips bracket citation with hyphenated -result suffix', () => {
+    const input = 'Search results【turn0search0-result】 are shown below.';
+    expect(sanitizeLlmResponse(input)).toBe('Search results are shown below.');
+  });
+
   // ── ASCII mangled cite tokens ──────────────────────────────────
 
   it('strips .citeXXX token with leading dot', () => {
@@ -46,6 +56,18 @@ describe('sanitizeLlmResponse', () => {
 
   it('is case-insensitive for cite tokens', () => {
     expect(sanitizeLlmResponse('Note.CITEturn0finance0 here.')).toBe('Note here.');
+  });
+
+  it('strips .citeXXX token with hyphenated -source suffix', () => {
+    expect(sanitizeLlmResponse('Sources indicate.citeturn0finance0-source that rates rose.')).toBe(
+      'Sources indicate that rates rose.',
+    );
+  });
+
+  it('strips .citeXXX token with hyphenated -result suffix', () => {
+    expect(sanitizeLlmResponse('Data from.citeturn0search0-result was compiled.')).toBe(
+      'Data from was compiled.',
+    );
   });
 
   // ── Regression: normal words containing "cite" must not be stripped ───
