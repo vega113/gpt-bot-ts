@@ -122,12 +122,19 @@ describe('sanitizeLlmResponse', () => {
 
   // ── Whitespace trimming ────────────────────────────────────────
 
-  it('trims leading whitespace', () => {
-    expect(sanitizeLlmResponse('  \n  hello')).toBe('hello');
+  it('does not strip leading whitespace (preserves indentation)', () => {
+    // trimEnd() only — leading spaces/tabs must survive so downstream
+    // markdown conversion sees correct indentation.
+    expect(sanitizeLlmResponse('  \n  hello')).toBe('  \n  hello');
   });
 
   it('trims trailing whitespace', () => {
     expect(sanitizeLlmResponse('hello\n  ')).toBe('hello');
+  });
+
+  it('preserves leading indentation on the first content line', () => {
+    const input = '    indented code block\nnormal text';
+    expect(sanitizeLlmResponse(input)).toBe('    indented code block\nnormal text');
   });
 
   // ── Content preservation ───────────────────────────────────────

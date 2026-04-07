@@ -18,7 +18,8 @@
  *     (e.g. CJK prose) are left intact.
  *  2. Remove leaked ASCII cite tokens   .citeXXX  (e.g. .citeturn0finance0)
  *  3. Collapse runs of 3+ consecutive blank lines down to 1 blank line
- *  4. Trim leading/trailing whitespace from the whole string
+ *  4. Trim trailing whitespace (leading whitespace is preserved so that
+ *     intentional indentation at the start of a response is not destroyed)
  *
  * Nothing else is modified — markdown syntax, links, bold, lists, and
  * actual content are left intact.
@@ -52,8 +53,11 @@ export function sanitizeLlmResponse(text: string): string {
   //    which the naive /(\n[ \t]*){3,}/ pattern would swallow.
   result = result.replace(/\n([ \t]*\n){2,}/g, '\n\n');
 
-  // 4. Trim the whole string
-  result = result.trim();
+  // 4. Trim trailing whitespace only.  Leading whitespace (e.g. the 4-space
+  //    indent of a code block or the leading spaces of a nested list at the
+  //    very top of the reply) must be preserved so downstream markdown
+  //    conversion sees the correct indentation.
+  result = result.trimEnd();
 
   return result;
 }
