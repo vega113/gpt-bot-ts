@@ -217,8 +217,9 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
   // - If user's blip is in a thread → continue that thread
   // - Otherwise → reply to the user's blip (creates a child thread)
   // Markdown is converted to Wave annotations so formatting renders correctly.
-  // Link annotations are restricted to safe schemes (http/https/mailto) to prevent
-  // model-generated output from injecting javascript: or other dangerous URIs.
+  // markdownToWave() already enforces safe schemes (http/https/mailto) internally;
+  // the filter below is a defense-in-depth guard in case other annotation sources
+  // are added in future.
   const SAFE_LINK_RE = /^https?:\/\/|^mailto:/i;
   const postReply = async (markdown: string) => {
     const { content, annotations } = markdownToWave(markdown);

@@ -59,19 +59,24 @@ interface Span {
 function parseInline(text: string): Span[] {
   const spans: Span[] = [];
 
+  // Safe-link pattern — only http/https/mailto URIs become link annotations.
+  // This is enforced here (at the source) rather than relying solely on callers.
+  const SAFE_URL_RE = /^https?:\/\/|^mailto:/i;
+
   // Single regex that matches all inline tokens, left-to-right.
   // Groups:
   //   1 — full match (unused)
   //   2 — ***bold italic*** content
   //   3 — **bold** / __bold__ content
-  //   4 — *italic* content
-  //   5 — _italic_ content  (word-boundary-aware: (?<!\w) / (?!\w) so
-  //       snake_case identifiers like set_user_name are NOT treated as italic)
+  //   4 — *italic* content — content-boundary-aware: leading/trailing char must be
+  //       non-whitespace so `2 * 3 * 4` (spaces around *) is NOT treated as italic
+  //   5 — _italic_ content — word-boundary-aware: (?<!\w) / (?!\w) so
+  //       snake_case identifiers like set_user_name are NOT treated as italic
   //   6 — `code` content
   //   7 — [link] text
-  //   8 — (link) url
+  //   8 — (link) url — allows one level of balanced parens for Wikipedia-style URLs
   const inlineRx =
-    /(\*\*\*(.+?)\*\*\*|(?:\*\*|__)(.+?)(?:\*\*|__)|\*(.+?)\*|(?<!\w)_(.+?)_(?!\w)|`(.+?)`|\[([^\]]+)\]\(([^)]+)\))/gs;
+    /(\*\*\*(.+?)\*\*\*|(?:\*\*|__)(.+?)(?:\*\*|__)|\*([^\s*][^*\n]*[^\s*]|[^\s*])\*|(?<!\w)_(.+?)_(?!\w)|`(.+?)`|\[([^\]]+)\]\(((?:[^()]+|\([^()]*\))*)\))/gs;
 
   let lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -89,17 +94,18 @@ function parseInline(text: string): Span[] {
       // **bold** or __bold__
       spans.push({ text: match[3], bold: true, italic: false });
     } else if (match[4] !== undefined) {
-      // *italic*
+      // *italic* (content starts/ends with non-whitespace)
       spans.push({ text: match[4], bold: false, italic: true });
     } else if (match[5] !== undefined) {
-      // _italic_
+      // _italic_ (word-boundary-aware)
       spans.push({ text: match[5], bold: false, italic: true });
     } else if (match[6] !== undefined) {
       // `code` — strip backticks, no annotation
       spans.push({ text: match[6], bold: false, italic: false });
     } else if (match[7] !== undefined && match[8] !== undefined) {
-      // [link text](url)
-      spans.push({ text: match[7], bold: false, italic: false, link: match[8] });
+      // [link text](url) — only annotate safe schemes
+      const url = match[8];
+      spans.push({ text: match[7], bold: false, italic: false, link: SAFE_URL_RE.test(url) ? url : undefined });
     }
 
     lastIndex = match.index + match[0].length;
@@ -145,6 +151,14 @@ export function markdownToWave(markdown: string): WaveContent {
 
     // --- Block-level patterns ---
 
+    // Horizontal rules FIRST — before header stripping, so `# ---` is not
+    // misidentified as a rule after the `#` is removed.
+    // Require the same char repeated 3+ times (no mixed markers like -=-).
+    if (/^[ \t]*([-*=])\1{2,}[ \t]*$/.test(line)) {
+      content += '──────────';
+      continue;
+    }
+
     // Headers: # text, ## text, …
     const headerMatch = line.match(/^#{1,6}\s+(.*)/);
     if (headerMatch) {
@@ -152,15 +166,11 @@ export function markdownToWave(markdown: string): WaveContent {
       isHeader = true;
     }
 
-    // Horizontal rules: --- / *** / === alone on a line
-    if (/^(\s*[-*=]){3,}\s*$/.test(line)) {
-      content += '──────────';
-      continue;
-    }
-
     // Bullet lists: - item / * item / + item
     // Use negative lookahead on * to avoid matching **bold** or ***bold italic***.
-    const bulletMatch = line.match(/^(\s*)(?:[-+]|\*(?!\*))\s+(.*)/);
+    // Skip when processing header content — `# - item` is a heading whose text
+    // happens to start with a dash, not a nested bullet.
+    const bulletMatch = !isHeader ? line.match(/^(\s*)(?:[-+]|\*(?!\*))\s+(.*)/) : null;
     if (bulletMatch) {
       prefix = bulletMatch[1] + '• ';
       line = bulletMatch[2];

@@ -84,6 +84,18 @@ describe('markdownToWave — italic', () => {
     expect(annotations).toContainEqual(ann('style/fontStyle', 'italic', 4, 9));
   });
 
+  it('does NOT treat spaced asterisks as italic (arithmetic: 2 * 3 * 4)', () => {
+    const { content, annotations } = markdownToWave('Result: 2 * 3 * 4');
+    expect(content).toBe('Result: 2 * 3 * 4');
+    expect(annotations).toHaveLength(0);
+  });
+
+  it('does NOT treat wildcard * as italic', () => {
+    const { content, annotations } = markdownToWave('ls *.ts files');
+    expect(content).toBe('ls *.ts files');
+    expect(annotations).toHaveLength(0);
+  });
+
   it('strips _ and creates fontStyle annotation', () => {
     const { content, annotations } = markdownToWave('Say _hello_ now');
     expect(content).toBe('Say hello now');
@@ -149,6 +161,24 @@ describe('markdownToWave — links', () => {
     const boldAnns = annotations.filter((a) => a.name === 'style/fontWeight');
     expect(boldAnns).toHaveLength(0);
   });
+
+  it('handles URLs with parentheses (Wikipedia-style)', () => {
+    const { content, annotations } = markdownToWave('[Disambiguation](https://en.wikipedia.org/wiki/Test_(disambiguation))');
+    expect(content).toBe('Disambiguation');
+    const linkAnn = annotations.find((a) => a.name === 'link/manual');
+    expect(linkAnn?.value).toBe('https://en.wikipedia.org/wiki/Test_(disambiguation)');
+  });
+
+  it('drops unsafe link schemes (javascript:)', () => {
+    const { content, annotations } = markdownToWave('[click](javascript:alert(1))');
+    expect(content).toBe('click');
+    expect(annotations.filter((a) => a.name === 'link/manual')).toHaveLength(0);
+  });
+
+  it('drops unsafe link schemes (data:)', () => {
+    const { annotations } = markdownToWave('[x](data:text/html,<h1>hi</h1>)');
+    expect(annotations.filter((a) => a.name === 'link/manual')).toHaveLength(0);
+  });
 });
 
 // ── code ─────────────────────────────────────────────────────
@@ -185,6 +215,39 @@ describe('markdownToWave — headers', () => {
     expect(annotations).toContainEqual(ann('style/fontWeight', 'bold', 0, 5));
     // Header-level bold for "Hello world"
     expect(annotations).toContainEqual(ann('style/fontWeight', 'bold', 0, 11));
+  });
+
+  it('does NOT treat "# ---" as a horizontal rule', () => {
+    // Header stripping happens AFTER horizontal rule check, so the --- in
+    // a heading is NOT misidentified as a rule.
+    const { content, annotations } = markdownToWave('# ---');
+    expect(content).toBe('---');
+    expect(annotations).toContainEqual(ann('style/fontWeight', 'bold', 0, 3));
+  });
+
+  it('does NOT treat "# - item" as a bullet list', () => {
+    // The heading marker is stripped first for inline processing, but block
+    // patterns (bullets) should not fire on heading content.
+    const { content } = markdownToWave('# - item');
+    // Should be "- item" as heading text (bold), not "• item"
+    expect(content).toBe('- item');
+  });
+});
+
+describe('markdownToWave — horizontal rules', () => {
+  it('converts --- to a rule line', () => {
+    const { content } = markdownToWave('---');
+    expect(content).toBe('──────────');
+  });
+
+  it('converts === to a rule line', () => {
+    const { content } = markdownToWave('===');
+    expect(content).toBe('──────────');
+  });
+
+  it('does NOT treat mixed chars like -=- as a horizontal rule', () => {
+    const { content } = markdownToWave('-=-');
+    expect(content).toBe('-=-');
   });
 });
 
