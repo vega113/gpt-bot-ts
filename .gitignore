@@ -4,3 +4,4 @@ dist/
 *.js.map
 *.d.ts
 !src/**/*.d.ts
+.claude/worktrees/

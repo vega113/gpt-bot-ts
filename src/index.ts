@@ -18,6 +18,13 @@ import express from 'express';
 import { WaveClient } from './wave-client.js';
 import { processMessage } from './agent.js';
 import { clearSession, sessionCount } from './context.js';
+import {
+  mentionsBot,
+  isValidBundle,
+  isBeingEdited,
+  isBlipInThread,
+} from './helpers.js';
+import type { BlipData, EventMessageBundle } from './helpers.js';
 
 // ── config ───────────────────────────────────────────────────
 
@@ -36,44 +43,6 @@ if (!process.env['OPENAI_API_KEY']) {
 }
 
 const waveClient = new WaveClient(SUPAWAVE_TOKEN);
-
-// ── types ────────────────────────────────────────────────────
-
-interface Annotation {
-  name: string;
-  value: string;
-  range: { start: number; end: number };
-}
-
-interface WaveEvent {
-  type: string;
-  modifiedBy: string;
-  timestamp: number;
-  properties: Record<string, unknown>;
-}
-
-interface BlipData {
-  blipId: string;
-  content: string;
-  contributors?: string[];
-  lastModifiedTime?: number;
-  annotations?: Annotation[];
-}
-
-interface EventMessageBundle {
-  events: WaveEvent[];
-  wavelet: {
-    waveId: string;
-    waveletId: string;
-    rootBlipId: string;
-    title: string;
-    participants: string[];
-  };
-  blips: Record<string, BlipData>;
-  threads: Record<string, { id: string; blipIds: string[] }>;
-  robotAddress: string;
-  rpcServerUrl: string;
-}
 
 // ── capabilities ─────────────────────────────────────────────
 
@@ -104,48 +73,8 @@ let shutdownRequested = false;
 const respondedContent = new Map<string, string>();
 
 // ── helpers ──────────────────────────────────────────────────
-
-/** Check if a blip mentions the bot by @-mention. */
-function mentionsBot(content: string): boolean {
-  const name = ROBOT_ADDRESS.split('@')[0];
-  return content.includes(`@${name}`) || content.includes(ROBOT_ADDRESS);
-}
-
-/** Validate that the request body looks like an EventMessageBundle. */
-function isValidBundle(body: unknown): body is EventMessageBundle {
-  if (!body || typeof body !== 'object') return false;
-  const b = body as Record<string, unknown>;
-  return (
-    Array.isArray(b['events']) &&
-    b['wavelet'] != null &&
-    typeof b['wavelet'] === 'object' &&
-    typeof (b['wavelet'] as Record<string, unknown>)['waveId'] === 'string'
-  );
-}
-
-/**
- * Check if a blip is currently being edited.
- *
- * user/d/{sessionId} annotations are PERMANENT — they stay on the blip
- * forever after editing. The signal is in the VALUE format:
- *
- *   "userId,startTimeMs,"          → still editing (empty end timestamp)
- *   "userId,startTimeMs,endTimeMs" → editing done (end timestamp present)
- *
- * A blip is "being edited" if ANY user/d/ annotation has an empty
- * third field (no end timestamp).
- */
-function isBeingEdited(blip: BlipData): boolean {
-  if (!blip.annotations) return false;
-  return blip.annotations.some((a) => {
-    if (!a.name.startsWith('user/d/')) return false;
-    if (a.value == null || a.value === '') return false;
-    // Parse "userId,startMs,endMs" — if endMs is empty, still editing
-    const parts = a.value.split(',');
-    // parts[2] is the end timestamp: empty or missing = still editing
-    return parts.length < 3 || parts[2] === '';
-  });
-}
+// Pure helpers (mentionsBot, isValidBundle, isBeingEdited, isBlipInThread)
+// are imported from ./helpers.js above.
 
 /**
  * Extract blips that are done being edited.
@@ -194,24 +123,9 @@ function extractFinishedBlip(
   return null;
 }
 
-/** Check if a blip is inside a reply thread (not the root thread). */
-function isBlipInThread(blipId: string, bundle: EventMessageBundle): boolean {
-  const threads = bundle.threads ?? {};
-  const rootBlipId = bundle.wavelet.rootBlipId;
-
-  for (const thread of Object.values(threads)) {
-    if (!thread?.blipIds?.includes(blipId)) continue;
-    // Skip the root thread — blips there are top-level, not in a reply thread.
-    // The root thread contains the rootBlipId.
-    if (thread.blipIds.includes(rootBlipId)) continue;
-    return true;
-  }
-  return false;
-}
-
 /** Check if the bot should respond to this blip. */
 function shouldRespond(blip: BlipData, bundle: EventMessageBundle): boolean {
-  if (mentionsBot(blip.content)) return true;
+  if (mentionsBot(blip.content, ROBOT_ADDRESS)) return true;
   if (bundle.wavelet.participants.includes(ROBOT_ADDRESS)) return true;
   return false;
 }
