@@ -1,5 +1,5 @@
 /**
- * Tests for JWT token expiry utilities exported from index.ts.
+ * Tests for JWT token expiry utilities imported from token-utils.ts.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';

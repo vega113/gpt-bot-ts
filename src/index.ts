@@ -170,15 +170,19 @@ app.get('/_wave/robot/profile', (_req, res) => {
 });
 
 app.get('/health', (_req, res) => {
-  const expiry = decodeTokenExpiry(SUPAWAVE_TOKEN);
+  // Use the client's current token — it may have been refreshed at runtime.
+  const expiry = decodeTokenExpiry(waveClient.getToken());
   const now = Date.now();
   const tokenExpiresAt = expiry ? expiry.toISOString() : null;
-  const tokenExpired = expiry ? expiry.getTime() <= now : null;
+  // When the token can't be decoded treat it as non-expired (indeterminate) — boolean false.
+  const tokenExpired: boolean = expiry ? expiry.getTime() <= now : false;
   const hoursUntilExpiry = expiry ? (expiry.getTime() - now) / (1000 * 60 * 60) : null;
 
   let tokenWarning: string | null = null;
   if (tokenExpired) {
     tokenWarning = 'Token is expired';
+  } else if (expiry === null) {
+    tokenWarning = 'Token expiry could not be determined';
   } else if (hoursUntilExpiry !== null && hoursUntilExpiry <= 24 * 7) {
     tokenWarning = `Token expires in ${hoursUntilExpiry.toFixed(1)}h`;
   }

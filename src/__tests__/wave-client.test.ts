@@ -377,5 +377,82 @@ describe('WaveClient', () => {
       // Two fetch calls: initial RPC + failed refresh; no third retry
       expect(fetchMock).toHaveBeenCalledTimes(2);
     });
+
+    it('throws immediately on 401 after a successful refresh (no infinite loop)', async () => {
+      const newToken = 'refreshed.jwt.token';
+
+      // First RPC → 401
+      fetchMock.mockResolvedValueOnce({ ok: false, status: 401, text: async () => 'Unauthorized' });
+      // Token refresh → success
+      fetchMock.mockResolvedValueOnce({ ok: true, status: 200, text: async () => newToken });
+      // Retry RPC → still 401 (e.g. server rejects even the new token)
+      fetchMock.mockResolvedValueOnce({ ok: false, status: 401, text: async () => 'Unauthorized' });
+
+      const client = new WaveClient({ token: TOKEN, robotAddress: 'bot@supawave.ai', secret: 'sec' });
+      await expect(client.fetchWave(WAVE_ID)).rejects.toThrow('Data API 401');
+      // Exactly three fetch calls: initial RPC, token refresh, one retry — no further loops
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
+    it('concurrent 401 callers share the in-flight refresh and both retry', async () => {
+      const newToken = 'shared.jwt.token';
+      const mockData = { waveletData: {}, blips: {}, threads: {} };
+
+      // Both concurrent RPCs get 401
+      fetchMock
+        .mockResolvedValueOnce({ ok: false, status: 401, text: async () => 'Unauthorized' })
+        .mockResolvedValueOnce({ ok: false, status: 401, text: async () => 'Unauthorized' });
+      // Single token refresh
+      fetchMock.mockResolvedValueOnce({ ok: true, status: 200, text: async () => newToken });
+      // Both retries succeed
+      fetchMock
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => [{ id: 'fetch-1', data: mockData }],
+          text: async () => JSON.stringify([{ id: 'fetch-1', data: mockData }]),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => [{ id: 'fetch-1', data: mockData }],
+          text: async () => JSON.stringify([{ id: 'fetch-1', data: mockData }]),
+        });
+
+      const client = new WaveClient({ token: TOKEN, robotAddress: 'bot@supawave.ai', secret: 'sec' });
+      const [result1, result2] = await Promise.all([
+        client.fetchWave(WAVE_ID),
+        client.fetchWave(WAVE_ID),
+      ]);
+
+      expect(result1).toEqual(mockData);
+      expect(result2).toEqual(mockData);
+      // 5 fetch calls: 2 initial RPCs + 1 token refresh + 2 retries (not 6 = no double refresh)
+      expect(fetchMock).toHaveBeenCalledTimes(5);
+    });
+  });
+
+  // ── refreshToken bare-string validation ──────────────────────
+
+  describe('refreshToken bare-string validation', () => {
+    it('rejects a non-JWT bare string (e.g. HTML)', async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => '<html>Not a token</html>',
+      });
+      const client = new WaveClient({ token: TOKEN, robotAddress: 'bot@supawave.ai', secret: 'sec' });
+      await expect(client.refreshToken()).rejects.toThrow('unexpected response format');
+    });
+
+    it('rejects a bare string with only two dot-separated segments', async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => 'header.payload',
+      });
+      const client = new WaveClient({ token: TOKEN, robotAddress: 'bot@supawave.ai', secret: 'sec' });
+      await expect(client.refreshToken()).rejects.toThrow('unexpected response format');
+    });
   });
 });
