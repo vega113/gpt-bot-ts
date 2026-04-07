@@ -68,6 +68,8 @@ Rules:
 - Use numbered lists with each item on its own line
 - Keep responses concise and well-structured
 - Do NOT put everything on one line
+- **Images:** Wave CANNOT display embedded images. NEVER use image markdown \`![alt](url)\`. If you want to reference an image or chart, use a plain hyperlink instead: \`[View chart](url)\`
+- **Tables:** You may use Markdown pipe tables for structured data. Keep tables simple (a few columns). The Wave client renders table cells as plain text separated by │
 
 Example of GOOD formatting:
 Here is the answer to your question.

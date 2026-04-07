@@ -10,8 +10,11 @@
  *   *italic*, _italic_
  *   ***bold italic***
  *   [link text](url)   (only http/https/mailto schemes are emitted as annotations)
+ *   ![alt text](url)   (images → rendered as clickable link with alt text)
  *   # / ## / ### headers (rendered as bold)
  *   - / * / + bullet lists (converted to • prefix)
+ *   1. / 2. numbered lists (number prefix preserved)
+ *   | tables |          (separator rows dropped; header row bolded; cells joined with │)
  *   `inline code` (rendered as plain text — Wave has no monospace annotation)
  *   Blank lines are preserved
  *
@@ -93,21 +96,23 @@ function parseInline(text: string): Span[] {
 
   // Single regex that matches all inline tokens, left-to-right.
   // Groups:
-  //   1 — full match (unused)
-  //   2 — ***bold italic*** content
-  //   3 — **bold** content — content-boundary-aware: leading/trailing char must be
-  //       non-whitespace so `2 ** 3 ** 2` (exponent operator) is NOT treated as bold
-  //   4 — __bold__ content — word-boundary-aware ((?<!\w) / (?!\w)) so
-  //       `my__init__method` is NOT treated as bold
-  //   5 — *italic* content — content-boundary-aware: leading/trailing char must be
-  //       non-whitespace so `2 * 3 * 4` and `ls *.ts` are NOT treated as italic
-  //   6 — _italic_ content — word-boundary-aware: (?<!\w) / (?!\w) so
-  //       snake_case identifiers like set_user_name are NOT treated as italic
-  //   7 — `code` content  (single-backtick only; not `` ` `` inside ``` fences)
-  //   8 — [link] text
-  //   9 — (link) url — allows one level of balanced parens for Wikipedia-style URLs
+  //   1  — full match (unused)
+  //   2  — ***bold italic*** content
+  //   3  — **bold** content — content-boundary-aware: leading/trailing char must be
+  //        non-whitespace so `2 ** 3 ** 2` (exponent operator) is NOT treated as bold
+  //   4  — __bold__ content — word-boundary-aware ((?<!\w) / (?!\w)) so
+  //        `my__init__method` is NOT treated as bold
+  //   5  — *italic* content — content-boundary-aware: leading/trailing char must be
+  //        non-whitespace so `2 * 3 * 4` and `ls *.ts` are NOT treated as italic
+  //   6  — _italic_ content — word-boundary-aware: (?<!\w) / (?!\w) so
+  //        snake_case identifiers like set_user_name are NOT treated as italic
+  //   7  — `code` content  (single-backtick only; not `` ` `` inside ``` fences)
+  //   8  — ![image alt] text  (image before link so `![…](…)` takes priority)
+  //   9  — ![image] url — allows one level of balanced parens
+  //   10 — [link] text
+  //   11 — (link) url — allows one level of balanced parens for Wikipedia-style URLs
   const inlineRx =
-    /(\*\*\*(.+?)\*\*\*|\*\*([^\s*][^*\n]*[^\s]|[^\s*])\*\*|(?<!\w)__(.+?)__(?!\w)|\*([^\s*][^*\n]*[^\s*]|[^\s*])\*|(?<!\w)_(.+?)_(?!\w)|(?<!`)`([^`]+)`(?!`)|\[([^\]]+)\]\(((?:[^()]+|\([^()]*\))*)\))/gs;
+    /(\*\*\*(.+?)\*\*\*|\*\*([^\s*][^*\n]*[^\s]|[^\s*])\*\*|(?<!\w)__(.+?)__(?!\w)|\*([^\s*][^*\n]*[^\s*]|[^\s*])\*|(?<!\w)_(.+?)_(?!\w)|(?<!`)`([^`]+)`(?!`)|!\[([^\]]*)\]\(((?:[^()]+|\([^()]*\))*)\)|\[([^\]]+)\]\(((?:[^()]+|\([^()]*\))*)\))/gs;
 
   let lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -137,9 +142,16 @@ function parseInline(text: string): Span[] {
       // `code` — strip backticks, no annotation
       spans.push({ text: decodeEscapes(match[7]), bold: false, italic: false });
     } else if (match[8] !== undefined && match[9] !== undefined) {
-      // [link text](url) — only annotate safe schemes
+      // ![alt text](url) — Wave cannot embed images; render as a clickable link.
+      // The alt text becomes the visible label; the URL is the link target.
+      // If the alt text is empty, fall back to "image".
       const url = decodeEscapes(match[9]);
-      spans.push({ text: decodeEscapes(match[8]), bold: false, italic: false, link: SAFE_URL_RE.test(url) ? url : undefined });
+      const alt = decodeEscapes(match[8]).trim() || 'image';
+      spans.push({ text: alt, bold: false, italic: false, link: SAFE_URL_RE.test(url) ? url : undefined });
+    } else if (match[10] !== undefined && match[11] !== undefined) {
+      // [link text](url) — only annotate safe schemes
+      const url = decodeEscapes(match[11]);
+      spans.push({ text: decodeEscapes(match[10]), bold: false, italic: false, link: SAFE_URL_RE.test(url) ? url : undefined });
     }
 
     lastIndex = match.index + match[0].length;
@@ -168,6 +180,44 @@ function parseInline(text: string): Span[] {
  * markdownToWave('Hello **world**!')
  * // → { content: 'Hello world!', annotations: [{ name: 'style/fontWeight', value: 'bold', range: { start: 6, end: 11 } }] }
  */
+// ── table helpers ────────────────────────────────────────────
+
+/**
+ * Regex that matches a Markdown table separator row such as:
+ *   |---|  or  |---|---|---|  or  |:---:|--:|---|  or  --- | --- | ---
+ * Each "cell" consists of optional colons around one or more dashes.
+ * The repeating-cell group is `*` (zero or more) so single-column
+ * separators like `|---|` are matched correctly.
+ */
+const TABLE_SEP_RE = /^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
+
+/**
+ * Returns true when `line` looks like a Markdown table row.
+ * A table row must start (optionally) with `|` and contain at least
+ * one `|` separator between cells.
+ */
+function isTableRow(line: string): boolean {
+  return line.includes('|') && /^\|?.+\|/.test(line);
+}
+
+/**
+ * Split a table row into its cell texts, stripping the outer `|` delimiters
+ * and trimming each cell.
+ * e.g. `| Source | Price |` → `['Source', 'Price']`
+ */
+function splitTableCells(line: string): string[] {
+  // Split on `|`, remove first (before the leading `|`) and last (after trailing `|`)
+  // elements if they're empty/whitespace.
+  const parts = line.split('|');
+  const cells: string[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    // Skip the empty segment that appears when the row starts/ends with `|`
+    if ((i === 0 || i === parts.length - 1) && parts[i]!.trim() === '') continue;
+    cells.push(parts[i]!.trim());
+  }
+  return cells;
+}
+
 export function markdownToWave(markdown: string): WaveContent {
   const annotations: WaveAnnotation[] = [];
   let content = '';
@@ -208,6 +258,56 @@ export function markdownToWave(markdown: string): WaveContent {
     if (/^[ \t]*([-*=])\1{2,}[ \t]*$/.test(line)) {
       content += '──────────';
       continue;
+    }
+
+    // ── Table handling ───────────────────────────────────────
+    //
+    // Separator rows (|---|---|) are dropped entirely — they provide column-
+    // alignment info for renderers but carry no content.
+    //
+    // Header rows (the row immediately before a separator) are bolded.
+    // Data rows are rendered as plain inline-parsed text with │ separators.
+    if (TABLE_SEP_RE.test(line)) {
+      // Drop the separator; don't emit a newline placeholder (already emitted above).
+      // To avoid a blank line where the separator was, undo the \n that was prepended.
+      if (content.endsWith('\n')) content = content.slice(0, -1);
+      continue;
+    }
+
+    if (isTableRow(line)) {
+      const cells = splitTableCells(line);
+      if (cells.length > 0) {
+        // Detect whether this is a header row: the NEXT non-empty line is a separator.
+        let nextNonEmpty = '';
+        for (let j = lineIndex + 1; j < lines.length; j++) {
+          if (lines[j]!.trim() !== '') { nextNonEmpty = lines[j]!; break; }
+        }
+        const isTableHeader = TABLE_SEP_RE.test(nextNonEmpty);
+
+        const rowStart = content.length;
+        // Render each cell through the inline parser, join with ' │ '
+        const cellSpans: Array<{ text: string; start: number; end: number; bold: boolean; italic: boolean; link?: string }> = [];
+        let rowText = '';
+        for (let ci = 0; ci < cells.length; ci++) {
+          if (ci > 0) rowText += ' │ ';
+          const cellStart = rowText.length;
+          const spans = parseInline(cells[ci]!);
+          for (const span of spans) {
+            if (span.text.length === 0) continue;
+            const s = rowText.length;
+            rowText += span.text;
+            cellSpans.push({ text: span.text, start: rowStart + s, end: rowStart + rowText.length, bold: span.bold || isTableHeader, italic: span.italic, link: span.link });
+          }
+          void cellStart;
+        }
+        content += rowText;
+        for (const cs of cellSpans) {
+          if (cs.bold) annotations.push({ name: 'style/fontWeight', value: 'bold', range: { start: cs.start, end: cs.end } });
+          if (cs.italic) annotations.push({ name: 'style/fontStyle', value: 'italic', range: { start: cs.start, end: cs.end } });
+          if (cs.link) annotations.push({ name: 'link/manual', value: cs.link, range: { start: cs.start, end: cs.end } });
+        }
+        continue;
+      }
     }
 
     // Headers: # text, ## text, …

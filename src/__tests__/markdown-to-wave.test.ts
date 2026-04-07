@@ -401,3 +401,120 @@ describe('markdownToWave — multi-line', () => {
     expect(annotations).toContainEqual(ann('style/fontWeight', 'bold', 2, 3));
   });
 });
+
+// ── image handling ────────────────────────────────────────────
+
+describe('markdownToWave — images', () => {
+  it('converts ![alt](url) to a link with the alt text as label', () => {
+    const { content, annotations } = markdownToWave('See ![chart](https://example.com/chart.png) here');
+    expect(content).toBe('See chart here');
+    expect(annotations).toContainEqual(ann('link/manual', 'https://example.com/chart.png', 4, 9));
+  });
+
+  it('uses "image" as fallback text when alt is empty', () => {
+    const { content, annotations } = markdownToWave('Look: ![](https://example.com/pic.jpg)');
+    expect(content).toBe('Look: image');
+    expect(annotations).toContainEqual(ann('link/manual', 'https://example.com/pic.jpg', 6, 11));
+  });
+
+  it('strips image markdown for unsafe URL schemes', () => {
+    const { content, annotations } = markdownToWave('![chart](javascript:evil())');
+    expect(content).toBe('chart');
+    // No link annotation for unsafe scheme
+    expect(annotations.filter(a => a.name === 'link/manual')).toHaveLength(0);
+  });
+
+  it('does not confuse a plain link with an image', () => {
+    const { content, annotations } = markdownToWave('[link](https://example.com) and ![img](https://example.com/img.png)');
+    expect(content).toBe('link and img');
+    expect(annotations).toHaveLength(2);
+    expect(annotations[0]).toEqual(ann('link/manual', 'https://example.com', 0, 4));
+    expect(annotations[1]).toEqual(ann('link/manual', 'https://example.com/img.png', 9, 12));
+  });
+
+  it('handles multiple images on the same line', () => {
+    const { content, annotations } = markdownToWave('![A](https://a.com) ![B](https://b.com)');
+    expect(content).toBe('A B');
+    expect(annotations).toContainEqual(ann('link/manual', 'https://a.com', 0, 1));
+    expect(annotations).toContainEqual(ann('link/manual', 'https://b.com', 2, 3));
+  });
+
+  it('converts a standalone image line to a labelled link', () => {
+    const { content, annotations } = markdownToWave('![BTC 24h chart](https://example.com/btc.png)');
+    expect(content).toBe('BTC 24h chart');
+    expect(annotations).toContainEqual(ann('link/manual', 'https://example.com/btc.png', 0, 13));
+  });
+});
+
+// ── table handling ────────────────────────────────────────────
+
+describe('markdownToWave — tables', () => {
+  it('drops the separator row and keeps header and data rows', () => {
+    const md = '| Source | Price |\n|--------|-------|\n| CoinMC | $68k  |';
+    const { content } = markdownToWave(md);
+    expect(content).toBe('Source │ Price\nCoinMC │ $68k');
+  });
+
+  it('bolds the header row (row immediately before separator)', () => {
+    const md = '| A | B |\n|---|---|\n| 1 | 2 |';
+    const { content, annotations } = markdownToWave(md);
+    expect(content).toBe('A │ B\n1 │ 2');
+    // Header cells bolded: 'A' at [0,1], ' │ ' at [1,4] (separator, not bolded), 'B' at [4,5]
+    const boldAnns = annotations.filter(a => a.name === 'style/fontWeight');
+    expect(boldAnns.some(a => a.range.start === 0 && a.range.end === 1)).toBe(true); // 'A'
+    expect(boldAnns.some(a => a.range.start === 4 && a.range.end === 5)).toBe(true); // 'B'
+  });
+
+  it('data rows are NOT bolded', () => {
+    const md = '| H |\n|---|\n| D |';
+    const { content, annotations } = markdownToWave(md);
+    expect(content).toBe('H\nD');
+    const boldAnns = annotations.filter(a => a.name === 'style/fontWeight');
+    // Only 'H' (header) should be bold, not 'D' (data)
+    expect(boldAnns.some(a => a.range.start === 0)).toBe(true);   // H is bold
+    expect(boldAnns.some(a => a.range.start === 2)).toBe(false);  // D is not bold
+  });
+
+  it('processes inline markdown inside table cells', () => {
+    const md = '| **Bold** | [Link](https://x.com) |\n|---|---|\n| plain | text |';
+    const { content, annotations } = markdownToWave(md);
+    expect(content).toBe('Bold │ Link\nplain │ text');
+    expect(annotations.some(a => a.name === 'style/fontWeight' && a.range.start === 0 && a.range.end === 4)).toBe(true);
+    expect(annotations.some(a => a.name === 'link/manual' && a.value === 'https://x.com')).toBe(true);
+  });
+
+  it('handles table without trailing pipe characters', () => {
+    const md = 'Source | Price\n--- | ---\nCoinGecko | $68k';
+    const { content } = markdownToWave(md);
+    // Separator dropped; both rows rendered
+    expect(content).toContain('Source');
+    expect(content).toContain('Price');
+    expect(content).toContain('CoinGecko');
+    expect(content).not.toContain('---');
+  });
+
+  it('handles a realistic BTC price table', () => {
+    const md = [
+      '| Source       | Price (USD) | Timestamp          |',
+      '|-------------|-------------|---------------------|',
+      '| CoinMarketCap | $68,378   | April 7, 2026 (live)|',
+      '| CoinGecko    | $68,707    | April 7, 2026       |',
+    ].join('\n');
+    const { content } = markdownToWave(md);
+    expect(content).toContain('Source');
+    expect(content).toContain('CoinMarketCap');
+    expect(content).toContain('$68,378');
+    expect(content).toContain('CoinGecko');
+    expect(content).not.toContain('------');
+  });
+
+  it('preserves surrounding content before and after a table', () => {
+    const md = 'Intro text.\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\nOutro text.';
+    const { content } = markdownToWave(md);
+    expect(content).toContain('Intro text.');
+    expect(content).toContain('A │ B');
+    expect(content).toContain('1 │ 2');
+    expect(content).toContain('Outro text.');
+    expect(content).not.toContain('---');
+  });
+});
