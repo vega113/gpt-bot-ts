@@ -65,12 +65,13 @@ function parseInline(text: string): Span[] {
   //   2 — ***bold italic*** content
   //   3 — **bold** / __bold__ content
   //   4 — *italic* content
-  //   5 — _italic_ content
+  //   5 — _italic_ content  (word-boundary-aware: (?<!\w) / (?!\w) so
+  //       snake_case identifiers like set_user_name are NOT treated as italic)
   //   6 — `code` content
   //   7 — [link] text
   //   8 — (link) url
   const inlineRx =
-    /(\*\*\*(.+?)\*\*\*|(?:\*\*|__)(.+?)(?:\*\*|__)|\*(.+?)\*|_(.+?)_|`(.+?)`|\[([^\]]+)\]\(([^)]+)\))/gs;
+    /(\*\*\*(.+?)\*\*\*|(?:\*\*|__)(.+?)(?:\*\*|__)|\*(.+?)\*|(?<!\w)_(.+?)_(?!\w)|`(.+?)`|\[([^\]]+)\]\(([^)]+)\))/gs;
 
   let lastIndex = 0;
   let match: RegExpExecArray | null;

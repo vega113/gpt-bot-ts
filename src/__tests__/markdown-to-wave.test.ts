@@ -89,6 +89,24 @@ describe('markdownToWave — italic', () => {
     expect(content).toBe('Say hello now');
     expect(annotations).toContainEqual(ann('style/fontStyle', 'italic', 4, 9));
   });
+
+  it('does NOT treat underscores inside a word as italic (snake_case)', () => {
+    const { content, annotations } = markdownToWave('Use set_user_name here');
+    expect(content).toBe('Use set_user_name here');
+    expect(annotations).toHaveLength(0);
+  });
+
+  it('does NOT treat underscores inside env var names as italic', () => {
+    const { content, annotations } = markdownToWave('Set OPENAI_API_KEY=value');
+    expect(content).toBe('Set OPENAI_API_KEY=value');
+    expect(annotations).toHaveLength(0);
+  });
+
+  it('still strips _ italic at word boundaries', () => {
+    const { content, annotations } = markdownToWave('This is _important_ stuff');
+    expect(content).toBe('This is important stuff');
+    expect(annotations).toContainEqual(ann('style/fontStyle', 'italic', 8, 17));
+  });
 });
 
 // ── bold italic ───────────────────────────────────────────────
