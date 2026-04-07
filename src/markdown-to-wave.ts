@@ -9,7 +9,7 @@
  *   **bold**, __bold__
  *   *italic*, _italic_
  *   ***bold italic***
- *   [link text](url)
+ *   [link text](url)   (only http/https/mailto schemes are emitted as annotations)
  *   # / ## / ### headers (rendered as bold)
  *   - / * / + bullet lists (converted to • prefix)
  *   `inline code` (rendered as plain text — Wave has no monospace annotation)
@@ -63,14 +63,14 @@ function parseInline(text: string): Span[] {
   // Groups:
   //   1 — full match (unused)
   //   2 — ***bold italic*** content
-  //   3 — **bold** content
+  //   3 — **bold** / __bold__ content
   //   4 — *italic* content
   //   5 — _italic_ content
   //   6 — `code` content
   //   7 — [link] text
   //   8 — (link) url
   const inlineRx =
-    /(\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|\*(.+?)\*|_(.+?)_|`(.+?)`|\[([^\]]+)\]\(([^)]+)\))/gs;
+    /(\*\*\*(.+?)\*\*\*|(?:\*\*|__)(.+?)(?:\*\*|__)|\*(.+?)\*|_(.+?)_|`(.+?)`|\[([^\]]+)\]\(([^)]+)\))/gs;
 
   let lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -85,7 +85,7 @@ function parseInline(text: string): Span[] {
       // ***bold italic***
       spans.push({ text: match[2], bold: true, italic: true });
     } else if (match[3] !== undefined) {
-      // **bold**
+      // **bold** or __bold__
       spans.push({ text: match[3], bold: true, italic: false });
     } else if (match[4] !== undefined) {
       // *italic*
@@ -157,9 +157,10 @@ export function markdownToWave(markdown: string): WaveContent {
       continue;
     }
 
-    // Bullet lists: - item / * item / + item (not ***bold***)
-    const bulletMatch = line.match(/^(\s*)[-+]\s+(.*)/);
-    if (bulletMatch && !line.startsWith('***') && !line.startsWith('**')) {
+    // Bullet lists: - item / * item / + item
+    // Use negative lookahead on * to avoid matching **bold** or ***bold italic***.
+    const bulletMatch = line.match(/^(\s*)(?:[-+]|\*(?!\*))\s+(.*)/);
+    if (bulletMatch) {
       prefix = bulletMatch[1] + '• ';
       line = bulletMatch[2];
     }

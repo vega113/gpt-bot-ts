@@ -61,6 +61,18 @@ describe('markdownToWave — bold', () => {
     expect(annotations).toContainEqual(ann('style/fontWeight', 'bold', 0, 1));
     expect(annotations).toContainEqual(ann('style/fontWeight', 'bold', 6, 7));
   });
+
+  it('handles __double-underscore bold__', () => {
+    const { content, annotations } = markdownToWave('__bold__');
+    expect(content).toBe('bold');
+    expect(annotations).toContainEqual(ann('style/fontWeight', 'bold', 0, 4));
+  });
+
+  it('handles __bold__ mid-sentence', () => {
+    const { content, annotations } = markdownToWave('Say __hello__ now');
+    expect(content).toBe('Say hello now');
+    expect(annotations).toContainEqual(ann('style/fontWeight', 'bold', 4, 9));
+  });
 });
 
 // ── italic ────────────────────────────────────────────────────
@@ -169,6 +181,17 @@ describe('markdownToWave — bullet lists', () => {
   it('converts + item to • item', () => {
     const { content } = markdownToWave('+ Second item');
     expect(content).toBe('• Second item');
+  });
+
+  it('converts * item to • item (single asterisk only)', () => {
+    const { content } = markdownToWave('* Third item');
+    expect(content).toBe('• Third item');
+  });
+
+  it('does not treat **bold** as a bullet', () => {
+    const { content, annotations } = markdownToWave('**Bold text**');
+    expect(content).toBe('Bold text');
+    expect(annotations).toContainEqual(ann('style/fontWeight', 'bold', 0, 9));
   });
 
   it('handles multi-line list', () => {

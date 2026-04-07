@@ -217,12 +217,18 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
   // - If user's blip is in a thread → continue that thread
   // - Otherwise → reply to the user's blip (creates a child thread)
   // Markdown is converted to Wave annotations so formatting renders correctly.
+  // Link annotations are restricted to safe schemes (http/https/mailto) to prevent
+  // model-generated output from injecting javascript: or other dangerous URIs.
+  const SAFE_LINK_RE = /^https?:\/\/|^mailto:/i;
   const postReply = async (markdown: string) => {
     const { content, annotations } = markdownToWave(markdown);
+    const safeAnnotations = annotations.filter(
+      (a) => a.name !== 'link/manual' || SAFE_LINK_RE.test(a.value),
+    );
     if (isInThread) {
-      await waveClient.continueThread(waveId, blip.blipId, content, waveletId, annotations);
+      await waveClient.continueThread(waveId, blip.blipId, content, waveletId, safeAnnotations);
     } else {
-      await waveClient.replyToBlip(waveId, blip.blipId, content, waveletId, annotations);
+      await waveClient.replyToBlip(waveId, blip.blipId, content, waveletId, safeAnnotations);
     }
   };
 
