@@ -57,6 +57,15 @@ describe('decodeTokenExpiry', () => {
   it('returns null for an empty string', () => {
     expect(decodeTokenExpiry('')).toBeNull();
   });
+
+  it('returns null when exp is out of the valid JS Date range (would produce Invalid Date)', () => {
+    // Number.MAX_SAFE_INTEGER * 1000 overflows the Date range; new Date() produces
+    // an Invalid Date where getTime() === NaN and toISOString() throws RangeError.
+    const header = Buffer.from(JSON.stringify({ alg: 'RS256' })).toString('base64url');
+    const payload = Buffer.from(JSON.stringify({ exp: Number.MAX_SAFE_INTEGER })).toString('base64url');
+    const result = decodeTokenExpiry(`${header}.${payload}.sig`);
+    expect(result).toBeNull();
+  });
 });
 
 // ── checkTokenExpiry ─────────────────────────────────────────

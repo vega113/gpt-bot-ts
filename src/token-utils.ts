@@ -17,7 +17,13 @@ export function decodeTokenExpiry(token: string): Date | null {
     const payloadJson = Buffer.from(parts[1]!, 'base64url').toString('utf-8');
     const payload = JSON.parse(payloadJson) as Record<string, unknown>;
     if (typeof payload['exp'] !== 'number') return null;
-    return new Date(payload['exp'] * 1000);
+    const date = new Date(payload['exp'] * 1000);
+    // new Date() silently produces an Invalid Date (getTime() === NaN) for
+    // exp values outside the JS Date range (e.g. Number.MAX_SAFE_INTEGER).
+    // Treat those as decode failures so callers never receive a Date that
+    // throws RangeError on toISOString().
+    if (!Number.isFinite(date.getTime())) return null;
+    return date;
   } catch {
     return null;
   }
