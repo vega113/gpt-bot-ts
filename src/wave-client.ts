@@ -145,14 +145,17 @@ export class WaveClient {
       } catch {
         throw new Error('Token refresh failed: invalid JSON response');
       }
-      const candidate =
-        (json['token'] as string | undefined) ??
-        (json['access_token'] as string | undefined) ??
-        (json['jwt'] as string | undefined);
-      if (!candidate) {
+      const candidateRaw =
+        json['token'] ??
+        json['access_token'] ??
+        json['jwt'];
+      if (typeof candidateRaw !== 'string' || !candidateRaw) {
         throw new Error('Token refresh failed: JSON did not contain a recognised token field');
       }
-      newToken = candidate;
+      if (!JWT_RE.test(candidateRaw)) {
+        throw new Error('Token refresh failed: JSON token field is not a valid JWT');
+      }
+      newToken = candidateRaw;
     } else {
       // Bare JWT — must be three base64url segments separated by dots
       if (!JWT_RE.test(trimmed)) {

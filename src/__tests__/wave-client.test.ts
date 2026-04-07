@@ -288,7 +288,7 @@ describe('WaveClient', () => {
     });
 
     it('updates the token when the endpoint returns JSON with a "token" field', async () => {
-      const newToken = 'new.jwt.from.json';
+      const newToken = 'newheader.newpayload.newsig';
       fetchMock.mockResolvedValueOnce({
         ok: true,
         status: 200,
@@ -325,6 +325,26 @@ describe('WaveClient', () => {
       });
       const client = new WaveClient({ token: TOKEN, robotAddress: 'bot@supawave.ai', secret: 'sec' });
       await expect(client.refreshToken()).rejects.toThrow('recognised token field');
+    });
+
+    it('throws when JSON token field is an object, not a string', async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ token: { nested: 'object' } }),
+      });
+      const client = new WaveClient({ token: TOKEN, robotAddress: 'bot@supawave.ai', secret: 'sec' });
+      await expect(client.refreshToken()).rejects.toThrow('recognised token field');
+    });
+
+    it('throws when JSON token field is a string but not a valid JWT', async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ token: 'not-a-jwt' }),
+      });
+      const client = new WaveClient({ token: TOKEN, robotAddress: 'bot@supawave.ai', secret: 'sec' });
+      await expect(client.refreshToken()).rejects.toThrow('not a valid JWT');
     });
   });
 
