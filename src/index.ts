@@ -26,11 +26,13 @@ import {
 } from './helpers.js';
 import type { BlipData, EventMessageBundle } from './helpers.js';
 import { markdownToWave } from './markdown-to-wave.js';
+import { decodeTokenExpiry, checkTokenExpiry } from './token-utils.js';
 
 // ── config ───────────────────────────────────────────────────
 
 const PORT = parseInt(process.env['PORT'] ?? '8089', 10);
 const SUPAWAVE_TOKEN = process.env['SUPAWAVE_TOKEN'] ?? '';
+const SUPAWAVE_SECRET = process.env['SUPAWAVE_SECRET'] ?? '';
 const ROBOT_ADDRESS = process.env['ROBOT_ADDRESS'] ?? 'gpt-ts-bot@supawave.ai';
 
 if (!SUPAWAVE_TOKEN) {
@@ -43,7 +45,15 @@ if (!process.env['OPENAI_API_KEY']) {
   process.exit(1);
 }
 
-const waveClient = new WaveClient(SUPAWAVE_TOKEN);
+// ── token expiry check ───────────────────────────────────────
+
+checkTokenExpiry(SUPAWAVE_TOKEN, Boolean(SUPAWAVE_SECRET));
+
+const waveClient = new WaveClient({
+  token: SUPAWAVE_TOKEN,
+  robotAddress: ROBOT_ADDRESS,
+  secret: SUPAWAVE_SECRET || undefined,
+});
 
 // ── capabilities ─────────────────────────────────────────────
 
@@ -160,7 +170,27 @@ app.get('/_wave/robot/profile', (_req, res) => {
 });
 
 app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', sessions: sessionCount() });
+  const expiry = decodeTokenExpiry(SUPAWAVE_TOKEN);
+  const now = Date.now();
+  const tokenExpiresAt = expiry ? expiry.toISOString() : null;
+  const tokenExpired = expiry ? expiry.getTime() <= now : null;
+  const hoursUntilExpiry = expiry ? (expiry.getTime() - now) / (1000 * 60 * 60) : null;
+
+  let tokenWarning: string | null = null;
+  if (tokenExpired) {
+    tokenWarning = 'Token is expired';
+  } else if (hoursUntilExpiry !== null && hoursUntilExpiry <= 24 * 7) {
+    tokenWarning = `Token expires in ${hoursUntilExpiry.toFixed(1)}h`;
+  }
+
+  res.json({
+    status: tokenExpired ? 'degraded' : 'ok',
+    sessions: sessionCount(),
+    tokenExpiresAt,
+    tokenExpired,
+    tokenWarning,
+    autoRefresh: waveClient.canRefresh(),
+  });
 });
 
 app.post('/_wave/robot/jsonrpc', async (req, res) => {
