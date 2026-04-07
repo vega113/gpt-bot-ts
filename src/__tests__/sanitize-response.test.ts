@@ -131,6 +131,22 @@ describe('sanitizeLlmResponse', () => {
     expect(sanitizeLlmResponse('【turn0finance0】')).toBe('');
   });
 
+  // ── Regression: valid full-width bracket content must not be stripped ───
+  it('does not strip CJK prose enclosed in full-width brackets', () => {
+    const input = '这是一个测试【示例文本】，请勿删除。';
+    expect(sanitizeLlmResponse(input)).toBe(input);
+  });
+
+  it('does not strip arbitrary labels in full-width brackets', () => {
+    const input = 'See section 【Appendix A】 for details.';
+    expect(sanitizeLlmResponse(input)).toBe(input);
+  });
+
+  it('strips OpenAI citation but preserves adjacent full-width bracket content', () => {
+    const input = 'Result【turn0finance0】 and label【Appendix A】.';
+    expect(sanitizeLlmResponse(input)).toBe('Result and label【Appendix A】.');
+  });
+
   // ── Combined scenarios ─────────────────────────────────────────
 
   it('strips citations and normalizes blank lines in a realistic response', () => {

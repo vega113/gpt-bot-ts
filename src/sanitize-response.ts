@@ -11,7 +11,10 @@
  * Strip OpenAI citation artifacts and normalize whitespace in an LLM response.
  *
  * Operations performed (in order):
- *  1. Remove Unicode bracket citations  【...】  (e.g. 【turn0finance0】)
+ *  1. Remove Unicode bracket citations matching the known OpenAI artifact shape:
+ *     【turn<digits><alphanum/dagger chars>】 (e.g. 【turn0finance0】,
+ *     【turn0search0†source】). Full-width brackets containing other content
+ *     (e.g. CJK prose) are left intact.
  *  2. Remove leaked ASCII cite tokens   .citeXXX  (e.g. .citeturn0finance0)
  *  3. Collapse runs of 3+ consecutive blank lines down to 1 blank line
  *  4. Trim leading/trailing whitespace from the whole string
@@ -25,9 +28,11 @@
 export function sanitizeLlmResponse(text: string): string {
   let result = text;
 
-  // 1. Strip Unicode bracket citations: 【anything】
-  //    These are inserted by OpenAI web-search as inline source references.
-  result = result.replace(/【[^】]*】/g, '');
+  // 1. Strip Unicode bracket citations matching the known OpenAI artifact shape:
+  //    【turn<digits><optional alphanumeric/dagger suffix>】
+  //    e.g. 【turn0finance0】, 【turn1search0†source】
+  //    This avoids stripping arbitrary CJK prose or other valid uses of 【...】.
+  result = result.replace(/【turn\d+[a-z0-9†]*】/gi, '');
 
   // 2. Strip ASCII-mangled cite tokens that match the known OpenAI artifact
   //    shape: an optional leading dot, then "citeturn", then digits, then an
