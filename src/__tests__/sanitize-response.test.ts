@@ -25,6 +25,16 @@ describe('sanitizeLlmResponse', () => {
     expect(sanitizeLlmResponse(input)).toBe('Revenue grew 12%, driven by cloud services.');
   });
 
+  it('strips bracket citation with hyphenated suffix (e.g. -source)', () => {
+    const input = 'Market data【turn0finance0-source】 confirms the trend.';
+    expect(sanitizeLlmResponse(input)).toBe('Market data confirms the trend.');
+  });
+
+  it('strips bracket citation with hyphenated -result suffix', () => {
+    const input = 'Search results【turn0search0-result】 are shown below.';
+    expect(sanitizeLlmResponse(input)).toBe('Search results are shown below.');
+  });
+
   // ── ASCII mangled cite tokens ──────────────────────────────────
 
   it('strips .citeXXX token with leading dot', () => {
@@ -46,6 +56,18 @@ describe('sanitizeLlmResponse', () => {
 
   it('is case-insensitive for cite tokens', () => {
     expect(sanitizeLlmResponse('Note.CITEturn0finance0 here.')).toBe('Note here.');
+  });
+
+  it('strips .citeXXX token with hyphenated -source suffix', () => {
+    expect(sanitizeLlmResponse('Sources indicate.citeturn0finance0-source that rates rose.')).toBe(
+      'Sources indicate that rates rose.',
+    );
+  });
+
+  it('strips .citeXXX token with hyphenated -result suffix', () => {
+    expect(sanitizeLlmResponse('Data from.citeturn0search0-result was compiled.')).toBe(
+      'Data from was compiled.',
+    );
   });
 
   // ── Regression: normal words containing "cite" must not be stripped ───
@@ -86,14 +108,33 @@ describe('sanitizeLlmResponse', () => {
     expect(sanitizeLlmResponse(input)).toBe('Line 1\nLine 2\nLine 3');
   });
 
+  it('preserves leading indentation of the line after collapsed blank lines', () => {
+    // 3+ consecutive blank lines before an indented line must not strip the indent
+    const input = 'A\n\n\n  indented code';
+    expect(sanitizeLlmResponse(input)).toBe('A\n\n  indented code');
+  });
+
+  it('collapses whitespace-only blank lines without stripping next line indent', () => {
+    // Blank lines may themselves contain spaces; the next line's indent must survive
+    const input = 'A\n  \n  \n  indented';
+    expect(sanitizeLlmResponse(input)).toBe('A\n\n  indented');
+  });
+
   // ── Whitespace trimming ────────────────────────────────────────
 
-  it('trims leading whitespace', () => {
-    expect(sanitizeLlmResponse('  \n  hello')).toBe('hello');
+  it('does not strip leading whitespace (preserves indentation)', () => {
+    // trimEnd() only — leading spaces/tabs must survive so downstream
+    // markdown conversion sees correct indentation.
+    expect(sanitizeLlmResponse('  \n  hello')).toBe('  \n  hello');
   });
 
   it('trims trailing whitespace', () => {
     expect(sanitizeLlmResponse('hello\n  ')).toBe('hello');
+  });
+
+  it('preserves leading indentation on the first content line', () => {
+    const input = '    indented code block\nnormal text';
+    expect(sanitizeLlmResponse(input)).toBe('    indented code block\nnormal text');
   });
 
   // ── Content preservation ───────────────────────────────────────
@@ -129,6 +170,22 @@ describe('sanitizeLlmResponse', () => {
 
   it('handles string with only citation markers', () => {
     expect(sanitizeLlmResponse('【turn0finance0】')).toBe('');
+  });
+
+  // ── Regression: valid full-width bracket content must not be stripped ───
+  it('does not strip CJK prose enclosed in full-width brackets', () => {
+    const input = '这是一个测试【示例文本】，请勿删除。';
+    expect(sanitizeLlmResponse(input)).toBe(input);
+  });
+
+  it('does not strip arbitrary labels in full-width brackets', () => {
+    const input = 'See section 【Appendix A】 for details.';
+    expect(sanitizeLlmResponse(input)).toBe(input);
+  });
+
+  it('strips OpenAI citation but preserves adjacent full-width bracket content', () => {
+    const input = 'Result【turn0finance0】 and label【Appendix A】.';
+    expect(sanitizeLlmResponse(input)).toBe('Result and label【Appendix A】.');
   });
 
   // ── Combined scenarios ─────────────────────────────────────────

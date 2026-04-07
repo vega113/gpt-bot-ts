@@ -173,15 +173,20 @@ app.get('/health', (_req, res) => {
   // Use the client's current token — it may have been refreshed at runtime.
   const expiry = decodeTokenExpiry(waveClient.getToken());
   const now = Date.now();
-  const tokenExpiresAt = expiry ? expiry.toISOString() : null;
+  // Guard against Date objects that carry NaN (e.g. if decodeTokenExpiry receives
+  // an `exp` claim with a value outside the valid JS Date range).  NaN propagates
+  // silently: `expiryMs <= now` is false, but toISOString() would throw a RangeError.
+  const expiryMs = expiry?.getTime();
+  const hasValidExpiry = expiryMs !== undefined && Number.isFinite(expiryMs);
+  const tokenExpiresAt = hasValidExpiry ? new Date(expiryMs!).toISOString() : null;
   // When the token can't be decoded treat it as non-expired (indeterminate) — boolean false.
-  const tokenExpired: boolean = expiry ? expiry.getTime() <= now : false;
-  const hoursUntilExpiry = expiry ? (expiry.getTime() - now) / (1000 * 60 * 60) : null;
+  const tokenExpired = hasValidExpiry ? expiryMs! <= now : false;
+  const hoursUntilExpiry = hasValidExpiry ? (expiryMs! - now) / (1000 * 60 * 60) : null;
 
   let tokenWarning: string | null = null;
   if (tokenExpired) {
     tokenWarning = 'Token is expired';
-  } else if (expiry === null) {
+  } else if (!hasValidExpiry) {
     tokenWarning = 'Token expiry could not be determined';
   } else if (hoursUntilExpiry !== null && hoursUntilExpiry <= 24 * 7) {
     tokenWarning = `Token expires in ${hoursUntilExpiry.toFixed(1)}h`;
