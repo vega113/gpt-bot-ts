@@ -12,6 +12,7 @@ import { webSearch } from './tools/web-search.js';
 import { createWaveReadTool } from './tools/wave-read.js';
 import { getSession } from './context.js';
 import { WaveClient } from './wave-client.js';
+import { sanitizeLlmResponse } from './sanitize-response.js';
 
 /**
  * Structured output schema for the bot's reply decision.
@@ -56,12 +57,14 @@ You MUST decide whether to reply at all. Return a JSON object with shouldReply a
 
 ## Response Formatting
 
-CRITICAL: Format your responses with proper line breaks. Each paragraph, list item, or section must be on its own line. Use blank lines between sections.
+CRITICAL: Always respond in **Markdown format**. Use **bold** for emphasis, "- " bullet lists for enumerations, [link text](url) for references, and ## Heading for section headers. Separate every paragraph, list item, and section with a newline. Use blank lines between sections.
 
 Rules:
+- Use Markdown syntax throughout — the Wave client renders it natively
 - Use line breaks (newlines) between paragraphs and sections
 - Use "- " for bullet points, each on its own line
-- Use **bold** for emphasis (Wave renders this)
+- Use **bold** for emphasis
+- Use [link text](url) for hyperlinks — never paste bare URLs
 - Use numbered lists with each item on its own line
 - Keep responses concise and well-structured
 - Do NOT put everything on one line
@@ -134,7 +137,19 @@ export async function processMessage({
   });
 
   if (result.finalOutput) {
-    return result.finalOutput;
+    const decision = result.finalOutput;
+    // Strip citation markers and normalize whitespace before the response
+    // reaches the Wave UI. OpenAI web-search injects inline source references
+    // like 【turn0finance0】 that render as garbled text in Wave blips.
+    // Use an explicit null check so we also sanitize empty strings.
+    if (decision.response !== null) {
+      const sanitized = sanitizeLlmResponse(decision.response);
+      // If sanitization reduces the response to an empty string (e.g. the
+      // model returned only citation markers), fall back to a safe message
+      // so the bot never posts a blank reply.
+      decision.response = sanitized || 'I had trouble generating a response. Please try again.';
+    }
+    return decision;
   }
 
   // Fallback: if the agent didn't produce structured output, reply anyway
