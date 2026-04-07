@@ -80,7 +80,7 @@ describe('markdownToWave — bold', () => {
     expect(annotations).toHaveLength(0);
   });
 
-  it('does NOT treat __private__ as bold when adjacent to word chars', () => {
+  it('treats __init__ as bold when delimiters are at word boundaries', () => {
     const { content, annotations } = markdownToWave('call __init__()');
     // __ at start of word "init" — opening __ is at word boundary (preceded by space)
     // and closing __ is followed by "(" (non-word) → this SHOULD match as bold
