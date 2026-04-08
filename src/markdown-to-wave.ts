@@ -204,15 +204,24 @@ function isTableSep(line: string): boolean {
 }
 
 /**
- * Returns true when `line` looks like a Markdown table row.
- * Excludes lines that start with block-level markers (`#`, `>`, `*`, `-`,
- * `+`, `!`) so that content like `# Title | info` or `- item | note` is
- * never mis-classified as a table row.
+ * Returns true when `line` structurally looks like a table row (has `|`
+ * content on both sides).  Permissive — used when we are already inside a
+ * table block so that valid data cells like `-5 | loss` or `#1 | count`
+ * are not rejected.
  */
 function isTableRow(line: string): boolean {
-  if (!line.includes('|')) return false;
-  if (/^[ \t]*[#>*\-+!]/.test(line)) return false;
-  return /^\|?.+\|/.test(line);
+  return line.includes('|') && /^\|?.+\|/.test(line);
+}
+
+/**
+ * Returns true when `line` can be the *header* row that starts a new table.
+ * Stricter than `isTableRow`: excludes lines beginning with block-level
+ * markers (`#`, `>`, `*`, `-`, `+`, `!`) so that `# Title | info` or
+ * `- item | note` cannot accidentally trigger a new table block.
+ */
+function canBeTableHeader(line: string): boolean {
+  if (!isTableRow(line)) return false;
+  return !/^[ \t]*[#>*\-+!]/.test(line);
 }
 
 /** Placeholder that temporarily replaces escaped pipes `\|` in table cells. */
@@ -245,6 +254,13 @@ export function markdownToWave(markdown: string): WaveContent {
   let inFencedBlock = false;
   /** True when a separator row was just processed, meaning subsequent rows are table data. */
   let inTable = false;
+  /**
+   * True when the most-recently rendered line was a table row.
+   * A separator is only consumed (and `inTable` set) when this is true,
+   * so an isolated `|---|---|` line that appears without a preceding table
+   * row is never silently deleted.
+   */
+  let prevWasTableRow = false;
 
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
     if (lineIndex > 0) {
@@ -263,6 +279,7 @@ export function markdownToWave(markdown: string): WaveContent {
     if (/^(`{3,}|~{3,})/.test(line)) {
       inFencedBlock = !inFencedBlock;
       inTable = false;
+      prevWasTableRow = false;
       // Emit the fence line itself as plain text (strip the fence marker but keep
       // any language hint after it for the opening fence).
       content += inFencedBlock ? line.replace(/^(`{3,}|~{3,})\s*/, '') : '';
@@ -279,6 +296,7 @@ export function markdownToWave(markdown: string): WaveContent {
     // Require the same char repeated 3+ times (no mixed markers like -=-).
     if (/^[ \t]*([-*=])\1{2,}[ \t]*$/.test(line)) {
       inTable = false;
+      prevWasTableRow = false;
       content += '──────────';
       continue;
     }
@@ -290,27 +308,36 @@ export function markdownToWave(markdown: string): WaveContent {
     //
     // Header rows (the row immediately before a separator) are bolded.
     // Data rows are rendered as plain inline-parsed text with │ separators.
+    //
     // `inTable` tracks whether we are inside a table block (set when a
     // separator row is encountered; cleared on any non-table line).
-    if (isTableSep(line)) {
+    // `prevWasTableRow` guards the separator: a separator is only consumed
+    // when the immediately preceding rendered line was a table row, so an
+    // isolated `|---|---|` cannot silently delete user content.
+    if (isTableSep(line) && prevWasTableRow) {
       // Drop the separator; don't emit a newline placeholder (already emitted above).
       // To avoid a blank line where the separator was, undo the \n that was prepended.
       if (content.endsWith('\n')) content = content.slice(0, -1);
       inTable = true; // subsequent rows are data rows
+      prevWasTableRow = false;
       continue;
     }
 
+    // A line is processed as a table row when:
+    //   - it is already inside a table block (`inTable`), using the permissive
+    //     `isTableRow` so that valid data like `-5 | loss` or `#1 | count` is
+    //     not rejected, OR
+    //   - it precedes a separator (`isTableHeader`), using the stricter
+    //     `canBeTableHeader` so that `# Title | info` cannot start a table.
     if (isTableRow(line)) {
       // Detect whether this is a header row: the NEXT non-empty line is a separator.
       let nextNonEmpty = '';
       for (let j = lineIndex + 1; j < lines.length; j++) {
         if (lines[j]!.trim() !== '') { nextNonEmpty = lines[j]!; break; }
       }
-      const isTableHeader = isTableSep(nextNonEmpty);
+      const isTableHeader = canBeTableHeader(line) && isTableSep(nextNonEmpty);
 
-      // Only render as a table row when inside a real table context:
-      //   - this row precedes a separator (isTableHeader), OR
-      //   - a separator was already seen (inTable)
+      // Only render as a table row when inside a real table context.
       // Plain pipe-containing text like `A | B` is passed through unchanged.
       if (isTableHeader || inTable) {
         const cells = splitTableCells(line);
@@ -335,6 +362,7 @@ export function markdownToWave(markdown: string): WaveContent {
             if (cs.italic) annotations.push({ name: 'style/fontStyle', value: 'italic', range: { start: cs.start, end: cs.end } });
             if (cs.link) annotations.push({ name: 'link/manual', value: cs.link, range: { start: cs.start, end: cs.end } });
           }
+          prevWasTableRow = true;
           continue;
         }
       }
@@ -342,6 +370,7 @@ export function markdownToWave(markdown: string): WaveContent {
 
     // Non-table line — exit table mode
     inTable = false;
+    prevWasTableRow = false;
 
     // Headers: # text, ## text, …
     const headerMatch = line.match(/^#{1,6}\s+(.*)/);

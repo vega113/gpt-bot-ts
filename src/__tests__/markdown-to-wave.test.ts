@@ -544,4 +544,25 @@ describe('markdownToWave — tables', () => {
     expect(content).toContain('c');
     expect(content).toContain('d');
   });
+
+  it('does not silently delete an isolated separator row (no preceding table row)', () => {
+    // A separator-like line that appears outside any table context must not be
+    // consumed and dropped — it should pass through as plain text.
+    const { content } = markdownToWave('Some text\n|---|---|\nMore text');
+    expect(content).toContain('Some text');
+    // The separator line was not preceded by a table row, so it must NOT be dropped
+    expect(content).toContain('---|---');
+    expect(content).toContain('More text');
+  });
+
+  it('processes block-marker-prefixed data like -5 | loss as a table row inside a table', () => {
+    // Valid table data that starts with `-` (negative numbers) or `#` must not
+    // fall out of an active table block.
+    const md = '| Value | Label |\n|---|---|\n| -5 | loss |\n| #1 | rank |';
+    const { content } = markdownToWave(md);
+    expect(content).toContain('-5');
+    expect(content).toContain('loss');
+    expect(content).toContain('#1');
+    expect(content).toContain('rank');
+  });
 });
