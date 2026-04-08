@@ -380,6 +380,24 @@ describe('findParentBlipContext', () => {
     expect(findParentBlipContext('child-blip', bundle)).toBe('Older parent');
   });
 
+  it('prefers a real parent thread over a self-thread when blip appears in multiple threads', () => {
+    // If the blip is in both a self-thread (thread.id === blipId) and a real
+    // parent thread (thread.id === parent blip id), the real parent must win.
+    const bundle = makeBundle({
+      blips: {
+        'parent-blip': makeBlip({ blipId: 'parent-blip', content: '\nParent blip content' }),
+        'child-blip': makeBlip({ blipId: 'child-blip', content: '\nreply' }),
+      },
+      threads: {
+        // Self-thread (thread.id === blipId) — encountered first
+        'child-blip': { id: 'child-blip', blipIds: ['child-blip'] },
+        // Real parent thread — should be found by continuing the scan
+        'parent-blip': { id: 'parent-blip', blipIds: ['child-blip'] },
+      },
+    });
+    expect(findParentBlipContext('child-blip', bundle)).toBe('Parent blip content');
+  });
+
   it('strategy 1 does not return the current blip when thread.id equals blipId', () => {
     // Edge case: if thread.id === blipId, strategy 1 must not return the blip itself.
     const bundle = makeBundle({

@@ -138,13 +138,17 @@ export function findParentBlipContext(blipId: string, bundle: EventMessageBundle
   // Use thread.id (not the map key) — the Wave data model only guarantees that
   // thread.id and blipIds are present; it does not require the map key to equal
   // thread.id.
+  // When multiple non-root threads contain this blip, prefer one whose thread.id
+  // differs from blipId (a real parent thread). A self-thread (thread.id === blipId)
+  // is recorded but scanning continues so a better parent thread is not missed.
   let threadId: string | null = null;
   for (const thread of Object.values(threads)) {
     if (!thread?.blipIds?.includes(blipId)) continue;
     // Skip the root thread — same guard as isBlipInThread
     if (thread.blipIds.includes(rootBlipId)) continue;
     threadId = thread.id;
-    break;
+    if (thread.id !== blipId) break; // real parent found — stop here
+    // self-thread: keep scanning for a better candidate
   }
 
   if (!threadId) return null;
