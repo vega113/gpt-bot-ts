@@ -180,7 +180,7 @@ export async function processMessage({
       // DEBUG_CITATION_SANITIZER=1 to avoid logging raw model content.
       if (process.env['DEBUG_CITATION_SANITIZER'] === '1') {
         const hasCitationArtifact =
-          /【(?:cite)?turn\d+[^】\n]*】/i.test(decision.response) ||
+          /【(?:cite†?)?turn\d+[^】\n]*】/i.test(decision.response) ||
           /\.?citeturn\d+[-a-z0-9†]*/i.test(decision.response);
         if (hasCitationArtifact) {
           console.debug('[agent] citation artifacts detected', {
