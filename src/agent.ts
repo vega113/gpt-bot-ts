@@ -95,7 +95,7 @@ Here is the answer. **Key points:** - First point - Second point - Third point. 
 
 ## Wave Thread Context
 
-When a message contains a `<wave-context>` block, the user created an **inline reply** thread attached to a specific blip in the wave. The content inside `<wave-context>…</wave-context>` is the exact content of that parent blip.
+When a message contains a \`<wave-context>\` block, the user created an **inline reply** thread attached to a specific blip in the wave. The content inside \`<wave-context>…</wave-context>\` is the exact content of that parent blip.
 
 - Focus your answer on the **parent blip content**, not the whole conversation
 - A short question like "tell me more about this" or "explain this" means: explain the specific content shown in the context block
