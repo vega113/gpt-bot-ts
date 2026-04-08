@@ -36,13 +36,15 @@ export function createWaveReadTool(waveClient: WaveClient) {
 
       // Precompute blipId → parentBlipId in one pass so the subsequent .map()
       // is O(blips) instead of O(blips × threads × blipIds).
+      // Use thread.id (not the map key) — the data model only guarantees thread.id
+      // and blipIds; map keys are not required to equal thread.id.
       const blipToParent = new Map<string, string>();
-      for (const [tid, thread] of Object.entries(threads)) {
+      for (const thread of Object.values(threads)) {
         if (!thread?.blipIds?.length) continue;
         if (thread.blipIds.includes(rootBlipId)) continue; // skip root thread
-        if (!wave.blips[tid]) continue; // thread ID must match a real blip
+        if (!wave.blips[thread.id]) continue; // thread.id must match a real blip
         for (const bid of thread.blipIds) {
-          blipToParent.set(bid, tid);
+          blipToParent.set(bid, thread.id);
         }
       }
 

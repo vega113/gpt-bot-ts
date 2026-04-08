@@ -95,7 +95,7 @@ Here is the answer. **Key points:** - First point - Second point - Third point. 
 
 ## Wave Thread Context
 
-When a message contains a \`<wave-context>\` block, the user created an **inline reply** thread attached to a specific blip in the wave. The content inside \`<wave-context>…</wave-context>\` is the exact content of that parent blip.
+When a message contains a \`<wave-context>\` block, the user created an **inline reply** thread attached to a specific blip in the wave. The content inside \`<wave-context>…</wave-context>\` is the parent blip's content (up to 2000 characters).
 
 - Focus your answer on the **parent blip content**, not the whole conversation
 - A short question like "tell me more about this" or "explain this" means: explain the specific content shown in the context block
@@ -150,7 +150,15 @@ export async function processMessage({
   // Parentcontext is capped to avoid inflating the prompt on large blips.
   const MAX_PARENT_CHARS = 2000;
   const input = parentContext
-    ? `<wave-context>\n${parentContext.slice(0, MAX_PARENT_CHARS)}${parentContext.length > MAX_PARENT_CHARS ? '\n[…truncated]' : ''}\n</wave-context>\n[${author}]: ${userMessage}`
+    ? (() => {
+        // Escape any closing tags in the parent content so they cannot break
+        // the <wave-context> delimiter structure.
+        const safeContext = parentContext
+          .slice(0, MAX_PARENT_CHARS)
+          .replace(/<\/wave-context>/gi, '[/wave-context]');
+        const truncationNote = parentContext.length > MAX_PARENT_CHARS ? '\n[…truncated]' : '';
+        return `<wave-context>\n${safeContext}${truncationNote}\n</wave-context>\n[${author}]: ${userMessage}`;
+      })()
     : `[${author}]: ${userMessage}`;
 
   const result = await run(a, input, {

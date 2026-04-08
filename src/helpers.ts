@@ -134,19 +134,22 @@ export function findParentBlipContext(blipId: string, bundle: EventMessageBundle
   const threads = bundle.threads ?? {};
   const rootBlipId = bundle.wavelet.rootBlipId;
 
-  // Find which non-root thread this blip belongs to (mirrors isBlipInThread logic)
+  // Find which non-root thread this blip belongs to (mirrors isBlipInThread logic).
+  // Use thread.id (not the map key) — the Wave data model only guarantees that
+  // thread.id and blipIds are present; it does not require the map key to equal
+  // thread.id.
   let threadId: string | null = null;
-  for (const [tid, thread] of Object.entries(threads)) {
+  for (const thread of Object.values(threads)) {
     if (!thread?.blipIds?.includes(blipId)) continue;
     // Skip the root thread — same guard as isBlipInThread
     if (thread.blipIds.includes(rootBlipId)) continue;
-    threadId = tid;
+    threadId = thread.id;
     break;
   }
 
   if (!threadId) return null;
 
-  // Strategy 1: thread ID matches a blip ID (most common in Wave inline threads)
+  // Strategy 1: thread.id matches a blip ID (most common in Wave inline threads)
   const parentByThreadId = bundle.blips[threadId];
   if (parentByThreadId) {
     const text = parentByThreadId.content.replace(/^\n/, '').trim();
