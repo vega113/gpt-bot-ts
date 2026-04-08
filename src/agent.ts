@@ -145,9 +145,17 @@ export async function processMessage({
     // like 【turn0finance0】 that render as garbled text in Wave blips.
     // Use an explicit null check so we also sanitize empty strings.
     if (decision.response !== null) {
-      // Log raw response (first 500 chars) so citation artifact formats can be diagnosed.
-      if (decision.response.includes('turn') || decision.response.includes('cite') || decision.response.includes('\u3010')) {
-        console.log('[agent] raw response excerpt (citation check):', JSON.stringify(decision.response.slice(0, 500)));
+      // Debug-only telemetry for citation artifacts — gated behind
+      // DEBUG_CITATION_SANITIZER=1 to avoid logging raw model content.
+      if (process.env['DEBUG_CITATION_SANITIZER'] === '1') {
+        const hasCitationArtifact =
+          /【(?:cite)?turn\d+[^】\n]*】/i.test(decision.response) ||
+          /\.?citeturn\d+[-a-z0-9†]*/i.test(decision.response);
+        if (hasCitationArtifact) {
+          console.debug('[agent] citation artifacts detected', {
+            responseLength: decision.response.length,
+          });
+        }
       }
       const sanitized = sanitizeLlmResponse(decision.response);
       // If sanitization reduces the response to an empty string (e.g. the

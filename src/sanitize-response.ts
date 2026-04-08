@@ -32,13 +32,15 @@ export function sanitizeLlmResponse(text: string): string {
 
   // 1. Strip Unicode bracket citations.  The OpenAI web-search tool injects
   //    references inside 【 】 (U+3010 / U+3011) lenticular brackets.
-  //    The content may start with "cite" before "turn" (e.g. 【citeturn0finance0】)
-  //    so the match covers any bracket pair that contains "turn<digits>" anywhere
-  //    inside, not just at the start.
-  //    e.g. 【turn0finance0】, 【citeturn0finance0】, 【turn1search0†source】
-  result = result.replace(/【[^】\n]*?turn\d+[^】\n]*?】/gi, '');
+  //    The bracket content always starts with an optional "cite" prefix
+  //    immediately followed by "turn<digits>" (e.g. 【turn0finance0】,
+  //    【citeturn0finance0】, 【turn1search0†source】).  Anchoring to the
+  //    bracket start prevents accidental removal of legitimate text that
+  //    merely contains "turn" elsewhere (e.g. 【Saturn2026】, 【return plan】).
+  result = result.replace(/【(?:cite)?turn\d+[^】\n]*】/gi, '');
 
-  // 1b. Remove any leftover empty bracket pairs that survive step 1 (e.g. 【】).
+  // 1b. Remove any empty lenticular bracket pairs (e.g. 【】) that may appear
+  //     in the response for any reason.
   result = result.replace(/【\s*】/g, '');
 
   // 2. Strip ASCII-mangled cite tokens.  These appear with or without a leading
