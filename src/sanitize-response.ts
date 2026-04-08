@@ -33,11 +33,20 @@ export function sanitizeLlmResponse(text: string): string {
   // 1. Strip Unicode bracket citations.  The OpenAI web-search tool injects
   //    references inside 【 】 (U+3010 / U+3011) lenticular brackets.
   //    The bracket content always starts with an optional "cite" prefix
-  //    immediately followed by "turn<digits>" (e.g. 【turn0finance0】,
-  //    【citeturn0finance0】, 【turn1search0†source】).  Anchoring to the
+  //    (sometimes separated from "turn" by a dagger † U+2020, e.g.
+  //    【cite†turn0finance0】) followed by "turn<digits>".  Anchoring to the
   //    bracket start prevents accidental removal of legitimate text that
   //    merely contains "turn" elsewhere (e.g. 【Saturn2026】, 【return plan】).
-  result = result.replace(/【(?:cite)?turn\d+[^】\n]*】/gi, '');
+  //    The optional group (?:cite†?)? matches "cite" with an optional dagger
+  //    (U+2020 †) between "cite" and "turn" — the only separators observed in
+  //    the wild.  This is more precise than a lazy wildcard and avoids matching
+  //    legitimate bracket content like 【cite our turn2 plan】.
+  //    Handled formats:
+  //      【turn0finance0】       (no cite prefix)
+  //      【citeturn0finance0】   (cite immediately before turn)
+  //      【cite†turn0finance0】  (cite + dagger + turn — U+2020)
+  //      【turn0search0†source】 【turn0finance0-source】 (suffixes after turn)
+  result = result.replace(/【(?:cite†?)?turn\d+[^】\n]*】/gi, '');
 
   // 1b. Remove any empty lenticular bracket pairs (e.g. 【】) that may appear
   //     in the response for any reason.

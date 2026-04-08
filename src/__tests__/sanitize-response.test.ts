@@ -43,6 +43,28 @@ describe('sanitizeLlmResponse', () => {
     expect(sanitizeLlmResponse(input)).toBe('The price increased.');
   });
 
+  it('strips bracket citation with dagger between cite and turn (【cite†turn0finance0】)', () => {
+    // The OpenAI Responses API emits 【cite†turn0finance0】 where U+2020 DAGGER
+    // separates "cite" from "turn".  In Wave's font this renders as ≡cite≡turn0finance0≡
+    // which appears in the UI as garbage text.
+    const input = 'The market fell today【cite†turn0finance0】.';
+    expect(sanitizeLlmResponse(input)).toBe('The market fell today.');
+  });
+
+  it('strips 【cite†turn0search0†source】 (double-dagger form)', () => {
+    const input = 'As reported【cite†turn0search0†source】 by analysts.';
+    expect(sanitizeLlmResponse(input)).toBe('As reported by analysts.');
+  });
+
+  // ── Regression: bracket content starting with "cite" but not a citation ───
+  it('does not strip bracketed text like 【cite our turn2 plan】', () => {
+    // The separator between "cite" and "turn<digits>" is only ever absent or †
+    // in OpenAI citations.  Any other char (space, letter, etc.) between them
+    // means it is legitimate content and must be preserved.
+    const input = 'See 【cite our turn2 plan】 for context.';
+    expect(sanitizeLlmResponse(input)).toBe(input);
+  });
+
   it('cleans up leftover empty lenticular brackets after citation removal', () => {
     // If a bracket pair is left with no content after stripping, it is removed too.
     const input = 'See this【】 result.';
