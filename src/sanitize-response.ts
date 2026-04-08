@@ -118,7 +118,7 @@ export function linkifyBareUrls(text: string): string {
   // Group 4: domain inside parens → linkify
   // Group 5: bare URL → linkify
   const COMBINED_RE = new RegExp(
-    '(```[\\s\\S]*?```|~~~[\\s\\S]*?~~~)'                 + // fenced code block
+    '(```[\\s\\S]*?(?:```|$)|~~~[\\s\\S]*?(?:~~~|$))'     + // fenced code block (incl. unterminated)
     '|(`[^`]+`)'                                          + // inline code span
     '|(\\[[^\\]]+\\]\\((?:[^()]+|\\([^()]*\\))*\\))'     + // existing markdown link
     '|\\((' +

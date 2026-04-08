@@ -418,6 +418,15 @@ describe('linkifyBareUrls', () => {
     expect(linkifyBareUrls(input)).toBe(input);
   });
 
+  it('does not linkify inside an unterminated fenced code block', () => {
+    const input = [
+      'Example:',
+      '```sh',
+      'curl https://example.com/api',
+    ].join('\n');
+    expect(linkifyBareUrls(input)).toBe(input);
+  });
+
   it('linkifies outside fenced blocks but not inside', () => {
     const input = [
       'Visit https://example.com for info.',
