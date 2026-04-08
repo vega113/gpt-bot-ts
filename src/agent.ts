@@ -151,11 +151,13 @@ export async function processMessage({
   const MAX_PARENT_CHARS = 2000;
   const input = parentContext
     ? (() => {
-        // Escape any closing tags in the parent content so they cannot break
-        // the <wave-context> delimiter structure.
+        // Escape any closing-tag variants in the parent content so they cannot
+        // break the <wave-context> delimiter. The regex covers optional
+        // internal whitespace (e.g. </wave-context >) in addition to the
+        // canonical form.
         const safeContext = parentContext
           .slice(0, MAX_PARENT_CHARS)
-          .replace(/<\/wave-context>/gi, '[/wave-context]');
+          .replace(/<\/\s*wave-context\s*>/gi, '[/wave-context]');
         const truncationNote = parentContext.length > MAX_PARENT_CHARS ? '\n[…truncated]' : '';
         return `<wave-context>\n${safeContext}${truncationNote}\n</wave-context>\n[${author}]: ${userMessage}`;
       })()
