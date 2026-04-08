@@ -149,8 +149,9 @@ export function findParentBlipContext(blipId: string, bundle: EventMessageBundle
 
   if (!threadId) return null;
 
-  // Strategy 1: thread.id matches a blip ID (most common in Wave inline threads)
-  const parentByThreadId = bundle.blips[threadId];
+  // Strategy 1: thread.id matches a blip ID (most common in Wave inline threads).
+  // Guard against thread.id === blipId to avoid a blip being its own parent.
+  const parentByThreadId = threadId !== blipId ? bundle.blips[threadId] : undefined;
   if (parentByThreadId) {
     const text = parentByThreadId.content.replace(/^\n/, '').trim();
     return text || null;
@@ -159,6 +160,8 @@ export function findParentBlipContext(blipId: string, bundle: EventMessageBundle
   // Strategy 2: most recently modified blip from the root thread.
   // Restricting to the root thread avoids picking up unrelated content from
   // sibling inline threads that happen to be more recently modified.
+  // Scan all candidates in order so a blank newest blip doesn't hide older
+  // blips with valid content.
   const rootThread = Object.values(threads).find((t) => t?.blipIds?.includes(rootBlipId));
   const rootThreadBlipIds = new Set(rootThread?.blipIds ?? [rootBlipId]);
 
@@ -166,10 +169,9 @@ export function findParentBlipContext(blipId: string, bundle: EventMessageBundle
     .filter((b) => rootThreadBlipIds.has(b.blipId) && b.blipId !== blipId)
     .sort((a, b) => (b.lastModifiedTime ?? 0) - (a.lastModifiedTime ?? 0));
 
-  const mostRecent = candidates[0];
-  if (mostRecent) {
-    const text = mostRecent.content.replace(/^\n/, '').trim();
-    return text || null;
+  for (const candidate of candidates) {
+    const text = candidate.content.replace(/^\n/, '').trim();
+    if (text) return text;
   }
 
   return null;

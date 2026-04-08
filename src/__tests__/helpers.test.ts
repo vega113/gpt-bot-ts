@@ -380,6 +380,39 @@ describe('findParentBlipContext', () => {
     expect(findParentBlipContext('child-blip', bundle)).toBe('Older parent');
   });
 
+  it('strategy 1 does not return the current blip when thread.id equals blipId', () => {
+    // Edge case: if thread.id === blipId, strategy 1 must not return the blip itself.
+    const bundle = makeBundle({
+      blips: {
+        'child-blip': makeBlip({ blipId: 'child-blip', content: '\nI am asking a question' }),
+      },
+      threads: {
+        // Thread whose id equals the child blip id — strategy 1 would naively pick it
+        'child-blip': { id: 'child-blip', blipIds: ['child-blip'] },
+      },
+    });
+    // Should not return the child's own content as parent context
+    expect(findParentBlipContext('child-blip', bundle)).toBeNull();
+  });
+
+  it('strategy 2 skips empty/blank root-thread blips and returns next non-empty one', () => {
+    // The newest root-thread blip is blank; the function should continue scanning
+    // and return the next blip with actual content.
+    const bundle = makeBundle({
+      blips: {
+        'root-blip': makeBlip({ blipId: 'root-blip', content: '\nValid older content', lastModifiedTime: 1000 }),
+        'blank-blip': makeBlip({ blipId: 'blank-blip', content: '\n   ', lastModifiedTime: 2000 }),
+        'child-blip': makeBlip({ blipId: 'child-blip', content: '\nreply' }),
+      },
+      threads: {
+        root: { id: 'root', blipIds: ['root-blip', 'blank-blip'] },
+        'inline-xyz': { id: 'inline-xyz', blipIds: ['child-blip'] },
+      },
+    });
+    // blank-blip is newest but empty; should fall through to root-blip
+    expect(findParentBlipContext('child-blip', bundle)).toBe('Valid older content');
+  });
+
   it('returns null when blip is only in the root thread (not an inline reply)', () => {
     const bundle = makeBundle({
       blips: {
