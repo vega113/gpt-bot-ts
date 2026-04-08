@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sanitizeLlmResponse } from '../sanitize-response.js';
+import { sanitizeLlmResponse, linkifyBareUrls } from '../sanitize-response.js';
 
 describe('sanitizeLlmResponse', () => {
   // ── Unicode bracket citations ──────────────────────────────────
@@ -44,9 +44,6 @@ describe('sanitizeLlmResponse', () => {
   });
 
   it('strips bracket citation with dagger between cite and turn (【cite†turn0finance0】)', () => {
-    // The OpenAI Responses API emits 【cite†turn0finance0】 where U+2020 DAGGER
-    // separates "cite" from "turn".  In Wave's font this renders as ≡cite≡turn0finance0≡
-    // which appears in the UI as garbage text.
     const input = 'The market fell today【cite†turn0finance0】.';
     expect(sanitizeLlmResponse(input)).toBe('The market fell today.');
   });
@@ -56,12 +53,21 @@ describe('sanitizeLlmResponse', () => {
     expect(sanitizeLlmResponse(input)).toBe('As reported by analysts.');
   });
 
+  it('strips bracket citation with any single non-word separator after cite', () => {
+    // Future-proofing: (?:cite[^\w\s】]?)? matches non-word, non-space separators
+    const input = 'Data shows【cite‡turn0finance0】 growth.';
+    expect(sanitizeLlmResponse(input)).toBe('Data shows growth.');
+  });
+
   // ── Regression: bracket content starting with "cite" but not a citation ───
   it('does not strip bracketed text like 【cite our turn2 plan】', () => {
-    // The separator between "cite" and "turn<digits>" is only ever absent or †
-    // in OpenAI citations.  Any other char (space, letter, etc.) between them
-    // means it is legitimate content and must be preserved.
     const input = 'See 【cite our turn2 plan】 for context.';
+    expect(sanitizeLlmResponse(input)).toBe(input);
+  });
+
+  it('does not strip 【cite turn2 plan】 (space between cite and turn)', () => {
+    // The separator [^\w\s】]? excludes spaces so this is preserved
+    const input = 'See 【cite turn2 plan】 for details.';
     expect(sanitizeLlmResponse(input)).toBe(input);
   });
 
@@ -257,5 +263,147 @@ describe('sanitizeLlmResponse', () => {
     ].join('\n');
 
     expect(sanitizeLlmResponse(input)).toBe(expected);
+  });
+});
+
+// ── linkifyBareUrls ─────────────────────────────────────────────
+
+describe('linkifyBareUrls', () => {
+  // ── Bare domain names in parentheses ──────────────────────────
+
+  it('converts (domain.com) to a markdown link', () => {
+    const input = 'Data from (coinmarketcap.com) shows growth.';
+    expect(linkifyBareUrls(input)).toBe(
+      'Data from ([coinmarketcap.com](https://coinmarketcap.com)) shows growth.',
+    );
+  });
+
+  it('converts multiple bare domain parens in one line', () => {
+    const input = 'Sources: (coinbase.com) and (cryptoslate.com).';
+    expect(linkifyBareUrls(input)).toBe(
+      'Sources: ([coinbase.com](https://coinbase.com)) and ([cryptoslate.com](https://cryptoslate.com)).',
+    );
+  });
+
+  it('handles subdomains in parens', () => {
+    const input = 'See (api.example.com) for docs.';
+    expect(linkifyBareUrls(input)).toBe(
+      'See ([api.example.com](https://api.example.com)) for docs.',
+    );
+  });
+
+  it('handles domain with path in parens', () => {
+    const input = 'Check (example.com/api/v1) for details.';
+    expect(linkifyBareUrls(input)).toBe(
+      'Check ([example.com/api/v1](https://example.com/api/v1)) for details.',
+    );
+  });
+
+  it('handles various TLDs', () => {
+    expect(linkifyBareUrls('(example.io)')).toBe('([example.io](https://example.io))');
+    expect(linkifyBareUrls('(example.ai)')).toBe('([example.ai](https://example.ai))');
+    expect(linkifyBareUrls('(example.dev)')).toBe('([example.dev](https://example.dev))');
+    expect(linkifyBareUrls('(example.org)')).toBe('([example.org](https://example.org))');
+  });
+
+  it('does not convert non-domain text in parens', () => {
+    expect(linkifyBareUrls('(e.g. this)')).toBe('(e.g. this)');
+    expect(linkifyBareUrls('(v1.0)')).toBe('(v1.0)');
+    expect(linkifyBareUrls('(Fig. 1)')).toBe('(Fig. 1)');
+    expect(linkifyBareUrls('(≈2.96%)')).toBe('(≈2.96%)');
+  });
+
+  it('does not convert text in parens with unrecognized TLDs', () => {
+    expect(linkifyBareUrls('(Node.js)')).toBe('(Node.js)');
+    expect(linkifyBareUrls('(test.txt)')).toBe('(test.txt)');
+  });
+
+  // ── Bare URLs ─────────────────────────────────────────────────
+
+  it('converts a bare https URL to a markdown link', () => {
+    const input = 'Visit https://example.com for more info.';
+    expect(linkifyBareUrls(input)).toBe(
+      'Visit [example.com](https://example.com) for more info.',
+    );
+  });
+
+  it('converts a bare URL with path', () => {
+    const input = 'See https://example.com/docs/api for details.';
+    expect(linkifyBareUrls(input)).toBe(
+      'See [example.com/docs/api](https://example.com/docs/api) for details.',
+    );
+  });
+
+  it('strips trailing punctuation from bare URLs', () => {
+    const input = 'Check https://example.com.';
+    expect(linkifyBareUrls(input)).toBe('Check [example.com](https://example.com).');
+  });
+
+  it('does not double-wrap URLs already in markdown link syntax', () => {
+    const input = 'See [report](https://example.com) for details.';
+    expect(linkifyBareUrls(input)).toBe(input);
+  });
+
+  it('does not double-wrap domain links created by the parens step', () => {
+    // Step 1 converts (example.com) → ([example.com](https://example.com))
+    // Step 2 must NOT re-wrap the https://example.com inside the markdown link
+    const input = 'Data from (example.com) shows growth.';
+    const result = linkifyBareUrls(input);
+    // Should produce exactly ONE link wrapper, not nested
+    expect(result).toBe('Data from ([example.com](https://example.com)) shows growth.');
+  });
+
+  it('strips www from display text', () => {
+    const input = 'Visit https://www.example.com for info.';
+    expect(linkifyBareUrls(input)).toBe('Visit [example.com](https://www.example.com) for info.');
+  });
+
+  it('truncates long display text', () => {
+    const longUrl = 'https://example.com/' + 'a'.repeat(80);
+    const result = linkifyBareUrls(`See ${longUrl} here.`);
+    expect(result).toContain('...](');
+    expect(result).toContain(longUrl); // full URL preserved in href
+  });
+
+  it('preserves text with no domains or URLs', () => {
+    const input = 'Hello world, this has no links.';
+    expect(linkifyBareUrls(input)).toBe(input);
+  });
+
+  it('does not linkify URLs inside code spans', () => {
+    const input = 'Run `curl https://example.com/api` to test.';
+    expect(linkifyBareUrls(input)).toBe(input);
+  });
+
+  it('does not linkify domains inside code spans', () => {
+    const input = 'Use `(api.example.com)` as the host.';
+    expect(linkifyBareUrls(input)).toBe(input);
+  });
+
+  it('handles Wikipedia-style URLs with balanced parens', () => {
+    const input = 'See https://en.wikipedia.org/wiki/Foo_(bar) for details.';
+    expect(linkifyBareUrls(input)).toBe(
+      'See [en.wikipedia.org/wiki/Foo_(bar)](https://en.wikipedia.org/wiki/Foo_(bar)) for details.',
+    );
+  });
+
+  // ── Combined realistic scenario ──────────────────────────────
+
+  it('linkifies source attributions in a web search response', () => {
+    const input = [
+      '- CoinMarketCap reports a price of $71,531. (coinmarketcap.com)',
+      '- CryptoSlate shows BTC at $71,637. (cryptoslate.com)',
+      '',
+      'See https://coinbase.com/price/bitcoin for live data.',
+    ].join('\n');
+
+    const expected = [
+      '- CoinMarketCap reports a price of $71,531. ([coinmarketcap.com](https://coinmarketcap.com))',
+      '- CryptoSlate shows BTC at $71,637. ([cryptoslate.com](https://cryptoslate.com))',
+      '',
+      'See [coinbase.com/price/bitcoin](https://coinbase.com/price/bitcoin) for live data.',
+    ].join('\n');
+
+    expect(linkifyBareUrls(input)).toBe(expected);
   });
 });

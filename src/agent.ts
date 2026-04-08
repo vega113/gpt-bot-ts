@@ -12,7 +12,7 @@ import { webSearch } from './tools/web-search.js';
 import { createWaveReadTool } from './tools/wave-read.js';
 import { getSession } from './context.js';
 import { WaveClient } from './wave-client.js';
-import { sanitizeLlmResponse } from './sanitize-response.js';
+import { sanitizeLlmResponse, linkifyBareUrls } from './sanitize-response.js';
 
 /**
  * Structured output schema for the bot's reply decision.
@@ -70,6 +70,7 @@ Rules:
 - Do NOT put everything on one line
 - **Images:** Wave CANNOT display embedded images. NEVER use image markdown \`![alt](url)\`. If you want to reference an image or chart, use a plain hyperlink instead: \`[View chart](url)\`
 - **Tables:** You may use Markdown pipe tables for structured data. Keep tables simple (a few columns). The Wave client renders table cells as plain text separated by │
+- **Source citations:** When citing web sources, ALWAYS use proper Markdown links: \`[Source Name](https://url)\`. NEVER paste bare domain names like \`(example.com)\` — always include the full URL. NEVER include internal citation markers like \`【turn0finance0】\` or \`.citeturn0finance0\` — these are meaningless artifacts
 
 Example of GOOD formatting:
 Here is the answer to your question.
@@ -180,7 +181,7 @@ export async function processMessage({
       // DEBUG_CITATION_SANITIZER=1 to avoid logging raw model content.
       if (process.env['DEBUG_CITATION_SANITIZER'] === '1') {
         const hasCitationArtifact =
-          /【(?:cite†?)?turn\d+[^】\n]*】/i.test(decision.response) ||
+          /【(?:cite[^\w\s】]?)?turn\d+[^】\n]*】/i.test(decision.response) ||
           /\.?citeturn\d+[-a-z0-9†]*/i.test(decision.response);
         if (hasCitationArtifact) {
           console.debug('[agent] citation artifacts detected', {
@@ -189,10 +190,14 @@ export async function processMessage({
         }
       }
       const sanitized = sanitizeLlmResponse(decision.response);
+      // Convert bare domain references (e.g. "(coinmarketcap.com)") and bare
+      // URLs to proper Markdown links so markdownToWave can produce link
+      // annotations and they render as clickable in the Wave UI.
+      const linked = linkifyBareUrls(sanitized);
       // If sanitization reduces the response to an empty string (e.g. the
       // model returned only citation markers), fall back to a safe message
       // so the bot never posts a blank reply.
-      decision.response = sanitized || 'I had trouble generating a response. Please try again.';
+      decision.response = linked || 'I had trouble generating a response. Please try again.';
     }
     return decision;
   }

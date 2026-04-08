@@ -37,16 +37,17 @@ export function sanitizeLlmResponse(text: string): string {
   //    【cite†turn0finance0】) followed by "turn<digits>".  Anchoring to the
   //    bracket start prevents accidental removal of legitimate text that
   //    merely contains "turn" elsewhere (e.g. 【Saturn2026】, 【return plan】).
-  //    The optional group (?:cite†?)? matches "cite" with an optional dagger
-  //    (U+2020 †) between "cite" and "turn" — the only separators observed in
-  //    the wild.  This is more precise than a lazy wildcard and avoids matching
-  //    legitimate bracket content like 【cite our turn2 plan】.
+  //    The optional group (?:cite[^\w\s】]?)? matches "cite" with at most
+  //    one non-word, non-space separator before "turn".  This covers the
+  //    observed dagger (†) and future Unicode symbol separators while
+  //    excluding spaces and letters so that legitimate bracket content
+  //    like 【cite turn2 plan】 is never falsely removed.
   //    Handled formats:
   //      【turn0finance0】       (no cite prefix)
   //      【citeturn0finance0】   (cite immediately before turn)
   //      【cite†turn0finance0】  (cite + dagger + turn — U+2020)
   //      【turn0search0†source】 【turn0finance0-source】 (suffixes after turn)
-  result = result.replace(/【(?:cite†?)?turn\d+[^】\n]*】/gi, '');
+  result = result.replace(/【(?:cite[^\w\s】]?)?turn\d+[^】\n]*】/gi, '');
 
   // 1b. Remove any empty lenticular bracket pairs (e.g. 【】) that may appear
   //     in the response for any reason.
@@ -73,4 +74,77 @@ export function sanitizeLlmResponse(text: string): string {
   result = result.trimEnd();
 
   return result;
+}
+
+// ── Common TLDs for bare-domain detection ───────────────────
+// Kept as a module-level constant so the regex is compiled once.
+const TLD_RE =
+  'com|org|net|io|ai|co|edu|gov|me|dev|app|info|biz|xyz|tech|' +
+  'uk|de|fr|jp|cn|us|ca|au|nl|ru|br|in|it|es|pl|se|no|fi|ch';
+
+
+/**
+ * Convert bare domain names and URLs in the text to Markdown links so that
+ * downstream `markdownToWave` can produce `link/manual` annotations.
+ *
+ * OpenAI web-search source attributions often appear as bare domain names
+ * in parentheses (e.g. `(coinmarketcap.com)`).  These are not Markdown
+ * links, so `markdownToWave` passes them through as plain text.  This
+ * function rewrites them into proper Markdown link syntax:
+ *
+ *   (coinmarketcap.com) → ([coinmarketcap.com](https://coinmarketcap.com))
+ *   https://example.com → [example.com](https://example.com)
+ *
+ * @param text - Sanitized LLM response (citation markers already stripped)
+ * @returns Text with bare domains/URLs converted to Markdown links
+ */
+export function linkifyBareUrls(text: string): string {
+  // Process through a single alternation regex that matches EITHER
+  // code spans (backtick content) OR linkification targets.  Code spans
+  // are returned verbatim so URLs inside them are never rewritten.
+  //
+  // Alternation order:  code spans first → domain-in-parens → bare URLs.
+  // Within each replacement the same guards apply (lookbehind, TLD check).
+
+  // Build a combined regex: (`code`) | (domain in parens) | (bare URL)
+  // Group 1: code span — returned as-is
+  // Group 2: domain inside parens (from DOMAIN_IN_PARENS_RE logic)
+  // Group 3: bare URL (from BARE_URL_RE logic, with lookbehind)
+  const COMBINED_RE = new RegExp(
+    '(`[^`]+`)'                                          + // code span
+    '|\\((' +
+      '(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)+(?:' + TLD_RE + ')' +
+      '(?:\\/[^\\s)]*)?' +
+    ')\\)'                                                + // domain in parens
+    '|(?<!\\]\\()(https?:\\/\\/(?:[^\\s()\\]>]|\\([^\\s)]*\\))+)', // bare URL
+    'gi',
+  );
+
+  return text.replace(COMBINED_RE, (match, codeSpan?: string, domain?: string, url?: string) => {
+    // Code span — return as-is, don't linkify anything inside
+    if (codeSpan) return match;
+
+    // Bare domain in parens → markdown link
+    if (domain) {
+      return `([${domain}](https://${domain}))`;
+    }
+
+    // Bare URL → markdown link
+    if (url) {
+      // Trim trailing punctuation that likely isn't part of the URL
+      let cleaned = url;
+      const trailingPunct = /[.,;:!?]+$/;
+      const punct = cleaned.match(trailingPunct);
+      if (punct) cleaned = cleaned.slice(0, -punct[0].length);
+
+      // Display text: strip protocol and www, truncate if very long
+      let display = cleaned.replace(/^https?:\/\//, '').replace(/^www\./, '');
+      if (display.endsWith('/')) display = display.slice(0, -1);
+      if (display.length > 60) display = display.slice(0, 57) + '...';
+
+      return `[${display}](${cleaned})${punct ? punct[0] : ''}`;
+    }
+
+    return match;
+  });
 }
