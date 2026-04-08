@@ -163,7 +163,7 @@ export function findParentBlipContext(blipId: string, bundle: EventMessageBundle
   const rootThreadBlipIds = new Set(rootThread?.blipIds ?? [rootBlipId]);
 
   const candidates = Object.values(bundle.blips)
-    .filter((b) => rootThreadBlipIds.has(b.blipId))
+    .filter((b) => rootThreadBlipIds.has(b.blipId) && b.blipId !== blipId)
     .sort((a, b) => (b.lastModifiedTime ?? 0) - (a.lastModifiedTime ?? 0));
 
   const mostRecent = candidates[0];

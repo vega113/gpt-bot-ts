@@ -361,6 +361,25 @@ describe('findParentBlipContext', () => {
     expect(findParentBlipContext('child-blip', bundle)).toBe('Newer content');
   });
 
+  it('strategy 2 does not select the current blip as its own parent', () => {
+    // If the child blip also appears in the root thread payload, it must not
+    // be selected as its own parent context.
+    const bundle = makeBundle({
+      blips: {
+        'root-blip': makeBlip({ blipId: 'root-blip', content: '\nOlder parent', lastModifiedTime: 1000 }),
+        // The child blip is the most recently modified but must be excluded
+        'child-blip': makeBlip({ blipId: 'child-blip', content: '\ntell me more', lastModifiedTime: 9999 }),
+      },
+      threads: {
+        root: { id: 'root', blipIds: ['root-blip', 'child-blip'] },
+        // Thread ID 'inline-xyz' does not match any blip ID — triggers strategy 2
+        'inline-xyz': { id: 'inline-xyz', blipIds: ['child-blip'] },
+      },
+    });
+    // Should return the parent (root-blip), not the child itself
+    expect(findParentBlipContext('child-blip', bundle)).toBe('Older parent');
+  });
+
   it('returns null when blip is only in the root thread (not an inline reply)', () => {
     const bundle = makeBundle({
       blips: {
