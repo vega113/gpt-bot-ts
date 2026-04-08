@@ -30,20 +30,22 @@
 export function sanitizeLlmResponse(text: string): string {
   let result = text;
 
-  // 1. Strip Unicode bracket citations matching the known OpenAI artifact shape:
-  //    【turn<digits><optional alphanumeric/dagger suffix>】
-  //    e.g. 【turn0finance0】, 【turn1search0†source】, 【turn0finance0-source】
-  //    This avoids stripping arbitrary CJK prose or other valid uses of 【...】.
-  result = result.replace(/【turn\d+[-a-z0-9†]*】/gi, '');
+  // 1. Strip Unicode bracket citations.  The OpenAI web-search tool injects
+  //    references inside 【 】 (U+3010 / U+3011) lenticular brackets.
+  //    The content may start with "cite" before "turn" (e.g. 【citeturn0finance0】)
+  //    so the match covers any bracket pair that contains "turn<digits>" anywhere
+  //    inside, not just at the start.
+  //    e.g. 【turn0finance0】, 【citeturn0finance0】, 【turn1search0†source】
+  result = result.replace(/【[^】\n]*?turn\d+[^】\n]*?】/gi, '');
 
-  // 2. Strip ASCII-mangled cite tokens that match the known OpenAI artifact
-  //    shape: an optional leading dot, then "citeturn", then digits, then an
-  //    optional alphanumeric/hyphenated suffix (e.g. .citeturn0finance0,
-  //    citeturn0search0source, .citeturn0finance0-source). Using a character
-  //    class that includes hyphens and dropping the word-boundary anchor
-  //    ensures the full hyphenated suffix is consumed. This avoids removing
-  //    normal words like "cited" or "cite".
-  result = result.replace(/\.?citeturn\d+[-a-z0-9]*/gi, '');
+  // 1b. Remove any leftover empty bracket pairs that survive step 1 (e.g. 【】).
+  result = result.replace(/【\s*】/g, '');
+
+  // 2. Strip ASCII-mangled cite tokens.  These appear with or without a leading
+  //    dot, e.g. .citeturn0finance0, citeturn0search0, .citeturn0finance0-source.
+  //    The pattern requires "citeturn" together so normal English words like
+  //    "cited", "cite", "return", etc. are never accidentally removed.
+  result = result.replace(/\.?citeturn\d+[-a-z0-9†]*/gi, '');
 
   // 3. Collapse 3+ consecutive blank lines → 1 blank line (i.e. at most one
   //    empty line between paragraphs).  A "blank line" is a line that contains

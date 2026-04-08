@@ -35,6 +35,20 @@ describe('sanitizeLlmResponse', () => {
     expect(sanitizeLlmResponse(input)).toBe('Search results are shown below.');
   });
 
+  it('strips bracket citation prefixed with cite inside brackets【citeturn0finance0】', () => {
+    // The OpenAI Responses API sometimes wraps citations as 【citeturnXXX】
+    // (content starts with "cite" before "turn"), which was not matched by the
+    // original regex that required content to start with "turn".
+    const input = 'The price increased.【citeturn0finance0】';
+    expect(sanitizeLlmResponse(input)).toBe('The price increased.');
+  });
+
+  it('cleans up leftover empty lenticular brackets after citation removal', () => {
+    // If a bracket pair is left with no content after stripping, it is removed too.
+    const input = 'See this【】 result.';
+    expect(sanitizeLlmResponse(input)).toBe('See this result.');
+  });
+
   // ── ASCII mangled cite tokens ──────────────────────────────────
 
   it('strips .citeXXX token with leading dot', () => {
