@@ -34,19 +34,23 @@ export function createWaveReadTool(waveClient: WaveClient) {
       const rootBlipId = wave.waveletData.rootBlipId;
       const threads = (wave.threads ?? {}) as Record<string, { id: string; blipIds: string[] }>;
 
+      // Precompute blipId → parentBlipId in one pass so the subsequent .map()
+      // is O(blips) instead of O(blips × threads × blipIds).
+      const blipToParent = new Map<string, string>();
+      for (const [tid, thread] of Object.entries(threads)) {
+        if (!thread?.blipIds?.length) continue;
+        if (thread.blipIds.includes(rootBlipId)) continue; // skip root thread
+        if (!wave.blips[tid]) continue; // thread ID must match a real blip
+        for (const bid of thread.blipIds) {
+          blipToParent.set(bid, tid);
+        }
+      }
+
       // Sort blips by lastModifiedTime for chronological order
       const blips = Object.values(wave.blips)
         .sort((a, b) => (a.lastModifiedTime ?? 0) - (b.lastModifiedTime ?? 0))
         .map((b) => {
-          // Determine if this blip is in an inline (non-root) thread
-          let parentBlipId: string | undefined;
-          for (const [tid, thread] of Object.entries(threads)) {
-            if (!thread?.blipIds?.includes(b.blipId)) continue;
-            if (thread.blipIds.includes(rootBlipId)) continue; // skip root thread
-            // thread ID often equals parent blip ID
-            if (wave.blips[tid]) parentBlipId = tid;
-            break;
-          }
+          const parentBlipId = blipToParent.get(b.blipId);
           return {
             blipId: b.blipId,
             author: b.contributors?.[0] ?? 'unknown',

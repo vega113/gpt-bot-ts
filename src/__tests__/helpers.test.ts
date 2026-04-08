@@ -340,22 +340,39 @@ describe('findParentBlipContext', () => {
     expect(findParentBlipContext('child-blip', bundle)).toBe('Hello world');
   });
 
-  it('falls back to most recent blip outside the thread (strategy 2)', () => {
-    // Thread ID does not match any blip ID — use fallback
+  it('falls back to most recent root-thread blip (strategy 2)', () => {
+    // Thread ID does not match any blip ID — use fallback restricted to root thread
     const bundle = makeBundle({
       blips: {
         'root-blip': makeBlip({ blipId: 'root-blip', content: '\nOlder content', lastModifiedTime: 1000 }),
         'other-blip': makeBlip({ blipId: 'other-blip', content: '\nNewer content', lastModifiedTime: 2000 }),
+        'sibling-thread-blip': makeBlip({ blipId: 'sibling-thread-blip', content: '\nUnrelated sibling thread', lastModifiedTime: 3000 }),
         'child-blip': makeBlip({ blipId: 'child-blip', content: '\nreply' }),
       },
       threads: {
         root: { id: 'root', blipIds: ['root-blip', 'other-blip'] },
+        // Sibling inline thread (more recently modified but unrelated)
+        'sibling-blip': { id: 'sibling-blip', blipIds: ['sibling-thread-blip'] },
         // Thread ID 'inline-thread-xyz' does not match any blip ID
         'inline-thread-xyz': { id: 'inline-thread-xyz', blipIds: ['child-blip'] },
       },
     });
-    // Should return the most recently modified blip outside the child's thread
+    // Should return the most recently modified ROOT-THREAD blip, not the sibling thread blip
     expect(findParentBlipContext('child-blip', bundle)).toBe('Newer content');
+  });
+
+  it('returns null when blip is only in the root thread (not an inline reply)', () => {
+    const bundle = makeBundle({
+      blips: {
+        'root-blip': makeBlip({ blipId: 'root-blip', content: '\nRoot content' }),
+        'another-root': makeBlip({ blipId: 'another-root', content: '\nAnother root blip' }),
+      },
+      threads: {
+        root: { id: 'root', blipIds: ['root-blip', 'another-root'] },
+      },
+    });
+    // Blip is in the root thread — not an inline reply, no parent context
+    expect(findParentBlipContext('another-root', bundle)).toBeNull();
   });
 
   it('returns null when parent blip content is empty', () => {

@@ -126,25 +126,25 @@ export function isBlipInThread(blipId: string, bundle: EventMessageBundle): bool
  *
  * In Wave, inline blips are created when a user selects text in a parent blip
  * and creates a reply. The thread ID typically equals the parent blip's ID.
- * If not, we fall back to the most recently modified blip outside this thread.
+ * If not, we fall back to the most recently modified blip from the root thread.
  *
  * Returns the parent blip's trimmed content, or null if no parent found.
  */
 export function findParentBlipContext(blipId: string, bundle: EventMessageBundle): string | null {
   const threads = bundle.threads ?? {};
+  const rootBlipId = bundle.wavelet.rootBlipId;
 
-  // Find which thread this blip belongs to
+  // Find which non-root thread this blip belongs to (mirrors isBlipInThread logic)
   let threadId: string | null = null;
-  let currentThread: { id: string; blipIds: string[] } | null = null;
   for (const [tid, thread] of Object.entries(threads)) {
-    if (thread?.blipIds?.includes(blipId)) {
-      threadId = tid;
-      currentThread = thread;
-      break;
-    }
+    if (!thread?.blipIds?.includes(blipId)) continue;
+    // Skip the root thread — same guard as isBlipInThread
+    if (thread.blipIds.includes(rootBlipId)) continue;
+    threadId = tid;
+    break;
   }
 
-  if (!threadId || !currentThread) return null;
+  if (!threadId) return null;
 
   // Strategy 1: thread ID matches a blip ID (most common in Wave inline threads)
   const parentByThreadId = bundle.blips[threadId];
@@ -153,10 +153,14 @@ export function findParentBlipContext(blipId: string, bundle: EventMessageBundle
     return text || null;
   }
 
-  // Strategy 2: most recently modified blip not in this thread
-  const currentThreadBlipIds = new Set(currentThread.blipIds);
+  // Strategy 2: most recently modified blip from the root thread.
+  // Restricting to the root thread avoids picking up unrelated content from
+  // sibling inline threads that happen to be more recently modified.
+  const rootThread = Object.values(threads).find((t) => t?.blipIds?.includes(rootBlipId));
+  const rootThreadBlipIds = new Set(rootThread?.blipIds ?? [rootBlipId]);
+
   const candidates = Object.values(bundle.blips)
-    .filter((b) => !currentThreadBlipIds.has(b.blipId))
+    .filter((b) => rootThreadBlipIds.has(b.blipId))
     .sort((a, b) => (b.lastModifiedTime ?? 0) - (a.lastModifiedTime ?? 0));
 
   const mostRecent = candidates[0];

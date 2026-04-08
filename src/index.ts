@@ -278,7 +278,7 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
   if (isInThread) {
     parentContext = findParentBlipContext(blip.blipId, bundle) ?? undefined;
     if (parentContext) {
-      console.log(`[context] wave=${waveId} parent="${parentContext.slice(0, 80).replace(/\n/g, ' ')}"`);
+      console.log(`[context] wave=${waveId} parentContextLength=${parentContext.length}`);
     }
   }
 

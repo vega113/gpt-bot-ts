@@ -95,7 +95,7 @@ Here is the answer. **Key points:** - First point - Second point - Third point. 
 
 ## Wave Thread Context
 
-When a message starts with "[Wave context — blip being replied to:]", the user created an **inline reply** thread attached to a specific blip in the wave. The section between "[Wave context…]" and "---" is the exact content of that parent blip.
+When a message contains a `<wave-context>` block, the user created an **inline reply** thread attached to a specific blip in the wave. The content inside `<wave-context>…</wave-context>` is the exact content of that parent blip.
 
 - Focus your answer on the **parent blip content**, not the whole conversation
 - A short question like "tell me more about this" or "explain this" means: explain the specific content shown in the context block
@@ -143,10 +143,14 @@ export async function processMessage({
   const a = getAgent(waveClient);
   const session = getSession(waveId);
 
-  // When the user's blip is an inline reply to another blip, prefix the LLM
-  // input with the parent blip's content so the model can answer in context.
+  // When the user's blip is an inline reply to another blip, include the
+  // parent blip's content in a structured block so the model can answer in
+  // context.  XML-style tags avoid the ambiguity that `---` delimiters cause
+  // when the parent content itself contains Markdown horizontal rules.
+  // Parentcontext is capped to avoid inflating the prompt on large blips.
+  const MAX_PARENT_CHARS = 2000;
   const input = parentContext
-    ? `[Wave context — blip being replied to:]\n${parentContext}\n---\n[${author}]: ${userMessage}`
+    ? `<wave-context>\n${parentContext.slice(0, MAX_PARENT_CHARS)}${parentContext.length > MAX_PARENT_CHARS ? '\n[…truncated]' : ''}\n</wave-context>\n[${author}]: ${userMessage}`
     : `[${author}]: ${userMessage}`;
 
   const result = await run(a, input, {
@@ -162,9 +166,17 @@ export async function processMessage({
     // like 【turn0finance0】 that render as garbled text in Wave blips.
     // Use an explicit null check so we also sanitize empty strings.
     if (decision.response !== null) {
-      // Log raw response (first 500 chars) so citation artifact formats can be diagnosed.
-      if (decision.response.includes('turn') || decision.response.includes('cite') || decision.response.includes('\u3010')) {
-        console.log('[agent] raw response excerpt (citation check):', JSON.stringify(decision.response.slice(0, 500)));
+      // Debug-only telemetry for citation artifacts — gated behind
+      // DEBUG_CITATION_SANITIZER=1 to avoid logging raw model content.
+      if (process.env['DEBUG_CITATION_SANITIZER'] === '1') {
+        const hasCitationArtifact =
+          /【(?:cite)?turn\d+[^】\n]*】/i.test(decision.response) ||
+          /\.?citeturn\d+[-a-z0-9†]*/i.test(decision.response);
+        if (hasCitationArtifact) {
+          console.debug('[agent] citation artifacts detected', {
+            responseLength: decision.response.length,
+          });
+        }
       }
       const sanitized = sanitizeLlmResponse(decision.response);
       // If sanitization reduces the response to an empty string (e.g. the
