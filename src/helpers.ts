@@ -120,3 +120,50 @@ export function isBlipInThread(blipId: string, bundle: EventMessageBundle): bool
   }
   return false;
 }
+
+/**
+ * Find the content of the parent blip that a threaded blip is replying to.
+ *
+ * In Wave, inline blips are created when a user selects text in a parent blip
+ * and creates a reply. The thread ID typically equals the parent blip's ID.
+ * If not, we fall back to the most recently modified blip outside this thread.
+ *
+ * Returns the parent blip's trimmed content, or null if no parent found.
+ */
+export function findParentBlipContext(blipId: string, bundle: EventMessageBundle): string | null {
+  const threads = bundle.threads ?? {};
+
+  // Find which thread this blip belongs to
+  let threadId: string | null = null;
+  let currentThread: { id: string; blipIds: string[] } | null = null;
+  for (const [tid, thread] of Object.entries(threads)) {
+    if (thread?.blipIds?.includes(blipId)) {
+      threadId = tid;
+      currentThread = thread;
+      break;
+    }
+  }
+
+  if (!threadId || !currentThread) return null;
+
+  // Strategy 1: thread ID matches a blip ID (most common in Wave inline threads)
+  const parentByThreadId = bundle.blips[threadId];
+  if (parentByThreadId) {
+    const text = parentByThreadId.content.replace(/^\n/, '').trim();
+    return text || null;
+  }
+
+  // Strategy 2: most recently modified blip not in this thread
+  const currentThreadBlipIds = new Set(currentThread.blipIds);
+  const candidates = Object.values(bundle.blips)
+    .filter((b) => !currentThreadBlipIds.has(b.blipId))
+    .sort((a, b) => (b.lastModifiedTime ?? 0) - (a.lastModifiedTime ?? 0));
+
+  const mostRecent = candidates[0];
+  if (mostRecent) {
+    const text = mostRecent.content.replace(/^\n/, '').trim();
+    return text || null;
+  }
+
+  return null;
+}

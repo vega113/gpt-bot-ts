@@ -4,6 +4,7 @@ import {
   isValidBundle,
   isBeingEdited,
   isBlipInThread,
+  findParentBlipContext,
 } from '../helpers.js';
 import type { EventMessageBundle, BlipData } from '../helpers.js';
 
@@ -289,5 +290,89 @@ describe('isBlipInThread', () => {
   it('handles missing threads gracefully (nullish coalesce)', () => {
     const bundle = makeBundle({ threads: undefined as unknown as Record<string, never> });
     expect(isBlipInThread('blip1', bundle)).toBe(false);
+  });
+});
+
+// ── findParentBlipContext ─────────────────────────────────────
+
+describe('findParentBlipContext', () => {
+  it('returns null when threads is empty', () => {
+    const bundle = makeBundle({ threads: {} });
+    expect(findParentBlipContext('blip1', bundle)).toBeNull();
+  });
+
+  it('returns null when the blip is not in any thread', () => {
+    const bundle = makeBundle({
+      blips: { other: makeBlip({ blipId: 'other', content: 'some content' }) },
+      threads: {
+        root: { id: 'root', blipIds: ['root-blip', 'other'] },
+      },
+    });
+    expect(findParentBlipContext('blip1', bundle)).toBeNull();
+  });
+
+  it('returns parent blip content when thread ID matches a blip ID (strategy 1)', () => {
+    // In Wave, the inline thread ID often equals the parent blip's ID
+    const bundle = makeBundle({
+      blips: {
+        'parent-blip': makeBlip({ blipId: 'parent-blip', content: '\nIsrael – Iran | Ongoing proxy conflict' }),
+        'child-blip': makeBlip({ blipId: 'child-blip', content: '\ntell me more about this' }),
+      },
+      threads: {
+        root: { id: 'root', blipIds: ['root-blip', 'parent-blip'] },
+        // Thread ID equals the parent blip's ID — the classic Wave inline thread pattern
+        'parent-blip': { id: 'parent-blip', blipIds: ['child-blip'] },
+      },
+    });
+    expect(findParentBlipContext('child-blip', bundle)).toBe('Israel – Iran | Ongoing proxy conflict');
+  });
+
+  it('strips leading newline from parent content', () => {
+    const bundle = makeBundle({
+      blips: {
+        'parent-blip': makeBlip({ blipId: 'parent-blip', content: '\nHello world' }),
+        'child-blip': makeBlip({ blipId: 'child-blip', content: '\nreply' }),
+      },
+      threads: {
+        'parent-blip': { id: 'parent-blip', blipIds: ['child-blip'] },
+      },
+    });
+    expect(findParentBlipContext('child-blip', bundle)).toBe('Hello world');
+  });
+
+  it('falls back to most recent blip outside the thread (strategy 2)', () => {
+    // Thread ID does not match any blip ID — use fallback
+    const bundle = makeBundle({
+      blips: {
+        'root-blip': makeBlip({ blipId: 'root-blip', content: '\nOlder content', lastModifiedTime: 1000 }),
+        'other-blip': makeBlip({ blipId: 'other-blip', content: '\nNewer content', lastModifiedTime: 2000 }),
+        'child-blip': makeBlip({ blipId: 'child-blip', content: '\nreply' }),
+      },
+      threads: {
+        root: { id: 'root', blipIds: ['root-blip', 'other-blip'] },
+        // Thread ID 'inline-thread-xyz' does not match any blip ID
+        'inline-thread-xyz': { id: 'inline-thread-xyz', blipIds: ['child-blip'] },
+      },
+    });
+    // Should return the most recently modified blip outside the child's thread
+    expect(findParentBlipContext('child-blip', bundle)).toBe('Newer content');
+  });
+
+  it('returns null when parent blip content is empty', () => {
+    const bundle = makeBundle({
+      blips: {
+        'parent-blip': makeBlip({ blipId: 'parent-blip', content: '\n   ' }),
+        'child-blip': makeBlip({ blipId: 'child-blip', content: '\nreply' }),
+      },
+      threads: {
+        'parent-blip': { id: 'parent-blip', blipIds: ['child-blip'] },
+      },
+    });
+    expect(findParentBlipContext('child-blip', bundle)).toBeNull();
+  });
+
+  it('handles missing threads gracefully', () => {
+    const bundle = makeBundle({ threads: undefined as unknown as Record<string, never> });
+    expect(findParentBlipContext('blip1', bundle)).toBeNull();
   });
 });

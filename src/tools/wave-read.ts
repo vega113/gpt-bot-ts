@@ -31,14 +31,29 @@ export function createWaveReadTool(waveClient: WaveClient) {
 
       const wave = await waveClient.fetchWave(waveId);
 
+      const rootBlipId = wave.waveletData.rootBlipId;
+      const threads = (wave.threads ?? {}) as Record<string, { id: string; blipIds: string[] }>;
+
       // Sort blips by lastModifiedTime for chronological order
       const blips = Object.values(wave.blips)
         .sort((a, b) => (a.lastModifiedTime ?? 0) - (b.lastModifiedTime ?? 0))
-        .map((b) => ({
-          blipId: b.blipId,
-          author: b.contributors?.[0] ?? 'unknown',
-          content: b.content.replace(/^\n/, '').trim(),
-        }));
+        .map((b) => {
+          // Determine if this blip is in an inline (non-root) thread
+          let parentBlipId: string | undefined;
+          for (const [tid, thread] of Object.entries(threads)) {
+            if (!thread?.blipIds?.includes(b.blipId)) continue;
+            if (thread.blipIds.includes(rootBlipId)) continue; // skip root thread
+            // thread ID often equals parent blip ID
+            if (wave.blips[tid]) parentBlipId = tid;
+            break;
+          }
+          return {
+            blipId: b.blipId,
+            author: b.contributors?.[0] ?? 'unknown',
+            content: b.content.replace(/^\n/, '').trim(),
+            ...(parentBlipId ? { inlineReplyTo: parentBlipId } : {}),
+          };
+        });
 
       return JSON.stringify(
         {

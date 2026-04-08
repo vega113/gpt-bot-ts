@@ -91,7 +91,17 @@ Here is the answer. **Key points:** - First point - Second point - Third point. 
 - You can read the full wave conversation using the read_wave tool for more context
 - Each wave is a separate conversation. You maintain context within each wave
 - Do not repeat previous messages. Focus on the latest user message
-- If multiple users are in the wave, address them naturally`;
+- If multiple users are in the wave, address them naturally
+
+## Wave Thread Context
+
+When a message starts with "[Wave context — blip being replied to:]", the user created an **inline reply** thread attached to a specific blip in the wave. The section between "[Wave context…]" and "---" is the exact content of that parent blip.
+
+- Focus your answer on the **parent blip content**, not the whole conversation
+- A short question like "tell me more about this" or "explain this" means: explain the specific content shown in the context block
+- If the context is a table row (e.g. "Israel – Iran | Ongoing proxy conflict"), address that row specifically — do not summarize the whole table
+- If the context is a paragraph or a claim, address that specific item
+- You may still use web search or read_wave for additional details, but anchor your answer to the contextual blip`;
 
 let agent: Agent<WaveContext, typeof BotDecision> | null = null;
 
@@ -114,6 +124,8 @@ export interface ProcessMessageOptions {
   userMessage: string;
   author: string;
   waveClient: WaveClient;
+  /** Content of the parent blip this message is replying to (inline thread). */
+  parentContext?: string;
 }
 
 /**
@@ -126,11 +138,16 @@ export async function processMessage({
   userMessage,
   author,
   waveClient,
+  parentContext,
 }: ProcessMessageOptions): Promise<BotDecision> {
   const a = getAgent(waveClient);
   const session = getSession(waveId);
 
-  const input = `[${author}]: ${userMessage}`;
+  // When the user's blip is an inline reply to another blip, prefix the LLM
+  // input with the parent blip's content so the model can answer in context.
+  const input = parentContext
+    ? `[Wave context — blip being replied to:]\n${parentContext}\n---\n[${author}]: ${userMessage}`
+    : `[${author}]: ${userMessage}`;
 
   const result = await run(a, input, {
     session,
