@@ -197,6 +197,13 @@ describe('sanitizeLlmResponse', () => {
     expect(sanitizeLlmResponse(input)).toBe(input);
   });
 
+  it('does not strip bracketed text that contains "turn" mid-word (e.g. Saturn)', () => {
+    // Regression: broad "turn anywhere" regex would strip 【Saturn2026】 because
+    // "Saturn" contains "turn".  The precise regex anchors to the bracket start.
+    const input = 'See 【Saturn2026】 and 【return plan】 for details.';
+    expect(sanitizeLlmResponse(input)).toBe(input);
+  });
+
   it('strips OpenAI citation but preserves adjacent full-width bracket content', () => {
     const input = 'Result【turn0finance0】 and label【Appendix A】.';
     expect(sanitizeLlmResponse(input)).toBe('Result and label【Appendix A】.');
