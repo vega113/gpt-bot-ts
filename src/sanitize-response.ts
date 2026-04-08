@@ -100,18 +100,27 @@ const TLD_RE =
  */
 export function linkifyBareUrls(text: string): string {
   // Process through a single alternation regex that matches EITHER
-  // code spans (backtick content) OR linkification targets.  Code spans
-  // are returned verbatim so URLs inside them are never rewritten.
+  // verbatim regions (fenced code blocks, inline code spans, existing
+  // markdown links) OR linkification targets (bare domains/URLs).
+  // Verbatim regions are returned as-is so their content is never rewritten.
   //
-  // Alternation order:  code spans first → domain-in-parens → bare URLs.
-  // Within each replacement the same guards apply (lookbehind, TLD check).
+  // Alternation priority (left to right):
+  //   1. Fenced code blocks  (```…``` or ~~~…~~~)
+  //   2. Inline code spans   (`…`)
+  //   3. Existing markdown links  [text](url)
+  //   4. Bare domain in parens    (domain.tld)
+  //   5. Bare URL                 https://…
 
-  // Build a combined regex: (`code`) | (domain in parens) | (bare URL)
-  // Group 1: code span — returned as-is
-  // Group 2: domain inside parens (from DOMAIN_IN_PARENS_RE logic)
-  // Group 3: bare URL (from BARE_URL_RE logic, with lookbehind)
+  // Build a combined regex with capture groups:
+  // Group 1: fenced code block — returned as-is
+  // Group 2: inline code span — returned as-is
+  // Group 3: existing markdown link — returned as-is
+  // Group 4: domain inside parens → linkify
+  // Group 5: bare URL → linkify
   const COMBINED_RE = new RegExp(
-    '(`[^`]+`)'                                          + // code span
+    '(```[\\s\\S]*?```|~~~[\\s\\S]*?~~~)'                 + // fenced code block
+    '|(`[^`]+`)'                                          + // inline code span
+    '|(\\[[^\\]]+\\]\\((?:[^()]+|\\([^()]*\\))*\\))'     + // existing markdown link
     '|\\((' +
       '(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)+(?:' + TLD_RE + ')' +
       '(?:\\/[^\\s)]*)?' +
@@ -120,9 +129,11 @@ export function linkifyBareUrls(text: string): string {
     'gi',
   );
 
-  return text.replace(COMBINED_RE, (match, codeSpan?: string, domain?: string, url?: string) => {
-    // Code span — return as-is, don't linkify anything inside
-    if (codeSpan) return match;
+  return text.replace(
+    COMBINED_RE,
+    (match, _fenced?: string, _codeSpan?: string, _mdLink?: string, domain?: string, url?: string) => {
+    // Fenced code block, inline code span, or existing markdown link — return as-is
+    if (_fenced || _codeSpan || _mdLink) return match;
 
     // Bare domain in parens → markdown link
     if (domain) {

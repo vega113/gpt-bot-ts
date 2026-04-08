@@ -387,6 +387,68 @@ describe('linkifyBareUrls', () => {
     );
   });
 
+  // ── Fenced code blocks ────────────────────────────────────────
+
+  it('does not linkify URLs or domains inside fenced code blocks', () => {
+    const input = [
+      'Example command:',
+      '```sh',
+      'curl https://example.com/api',
+      'ping api.example.com',
+      '```',
+    ].join('\n');
+    expect(linkifyBareUrls(input)).toBe(input);
+  });
+
+  it('does not linkify domains in parens inside fenced code blocks', () => {
+    const input = [
+      '```',
+      'host: (api.example.com)',
+      '```',
+    ].join('\n');
+    expect(linkifyBareUrls(input)).toBe(input);
+  });
+
+  it('does not linkify inside tilde-fenced code blocks', () => {
+    const input = [
+      '~~~',
+      'https://example.com',
+      '~~~',
+    ].join('\n');
+    expect(linkifyBareUrls(input)).toBe(input);
+  });
+
+  it('linkifies outside fenced blocks but not inside', () => {
+    const input = [
+      'Visit https://example.com for info.',
+      '```',
+      'curl https://internal.example.com',
+      '```',
+      'Also see (coinbase.com) for prices.',
+    ].join('\n');
+    const expected = [
+      'Visit [example.com](https://example.com) for info.',
+      '```',
+      'curl https://internal.example.com',
+      '```',
+      'Also see ([coinbase.com](https://coinbase.com)) for prices.',
+    ].join('\n');
+    expect(linkifyBareUrls(input)).toBe(expected);
+  });
+
+  // ── Existing markdown links ───────────────────────────────────
+
+  it('does not rewrite URLs used as markdown link text', () => {
+    // [https://example.com](https://example.com) must not become nested
+    const input = '[https://example.com](https://example.com)';
+    expect(linkifyBareUrls(input)).toBe(input);
+  });
+
+  it('does not rewrite URLs inside link label text', () => {
+    const input = '[Visit https://example.com here](https://other.com)';
+    expect(linkifyBareUrls(input)).toBe(input);
+  });
+
   // ── Combined realistic scenario ──────────────────────────────
 
   it('linkifies source attributions in a web search response', () => {
