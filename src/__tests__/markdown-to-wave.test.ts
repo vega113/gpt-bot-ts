@@ -444,6 +444,19 @@ describe('markdownToWave — images', () => {
     expect(content).toBe('BTC 24h chart');
     expect(annotations).toContainEqual(ann('link/manual', 'https://example.com/btc.png', 0, 13));
   });
+
+  it('does not convert escaped image syntax \\![alt](url) as an image', () => {
+    // \! escapes the `!` to a literal character — the IMAGE pattern must not fire.
+    // The remaining [alt text](url) is still a regular link per standard Markdown.
+    const { content, annotations } = markdownToWave('\\![alt text](https://example.com/img.png)');
+    // The `!` is present as a plain literal character (not consumed by the image pattern)
+    expect(content).toContain('!');
+    // It is a regular link, not an image-converted link: the ! is separate plain text
+    expect(content).toBe('!alt text');
+    expect(annotations.filter(a => a.name === 'link/manual')).toHaveLength(1);
+    // The annotation covers 'alt text' only, not the leading '!'
+    expect(annotations.find(a => a.name === 'link/manual')?.range.start).toBe(1);
+  });
 });
 
 // ── table handling ────────────────────────────────────────────
@@ -564,5 +577,15 @@ describe('markdownToWave — tables', () => {
     expect(content).toContain('loss');
     expect(content).toContain('#1');
     expect(content).toContain('rank');
+  });
+
+  it('does not treat a pipe row as a table header when blank lines separate it from the separator', () => {
+    // Markdown table syntax requires the separator to be on the line immediately
+    // following the header — a blank line in between means it is not a table.
+    const { content, annotations } = markdownToWave('A | B\n\n|---|---|\nC | D');
+    // A | B must not be bolded (not a table header)
+    expect(annotations.filter(a => a.name === 'style/fontWeight')).toHaveLength(0);
+    // The pipe row and separator should pass through as plain text
+    expect(content).toContain('A | B');
   });
 });

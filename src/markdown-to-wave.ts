@@ -64,7 +64,7 @@ interface Span {
  * inline regex never sees the escaped delimiter characters.
  * Restored by `unescapeSpan` after spans are collected.
  */
-const ESCAPED_CHARS = '*_`[]()\\' as const;
+const ESCAPED_CHARS = '*_`[]()\\!' as const;
 const CHAR_TO_PLACEHOLDER: Record<string, string> = {};
 const PLACEHOLDER_TO_CHAR: Record<string, string> = {};
 for (let i = 0; i < ESCAPED_CHARS.length; i++) {
@@ -73,7 +73,7 @@ for (let i = 0; i < ESCAPED_CHARS.length; i++) {
   CHAR_TO_PLACEHOLDER[ch] = ph;
   PLACEHOLDER_TO_CHAR[ph] = ch;
 }
-const ESCAPE_RE = /\\([*_`\[\]()\\/])/g;
+const ESCAPE_RE = /\\([*_`\[\]()\\/!])/g;
 const PLACEHOLDER_RE = /\uE700[\uE700-\uE7FF]/g;
 
 function encodeEscapes(s: string): string {
@@ -83,12 +83,11 @@ function decodeEscapes(s: string): string {
   return s.replace(PLACEHOLDER_RE, (ph) => PLACEHOLDER_TO_CHAR[ph] ?? ph);
 }
 
+/** Only http/https/mailto URIs become link annotations — enforced at the source. */
+const SAFE_URL_RE = /^https?:\/\/|^mailto:/i;
+
 function parseInline(text: string): Span[] {
   const spans: Span[] = [];
-
-  // Safe-link pattern — only http/https/mailto URIs become link annotations.
-  // This is enforced here (at the source) rather than relying solely on callers.
-  const SAFE_URL_RE = /^https?:\/\/|^mailto:/i;
 
   // Encode backslash-escaped delimiters so the regex below never matches them.
   // e.g. `\*literal\*` → placeholders → not matched as italic → decoded back to `*literal*`
@@ -226,6 +225,8 @@ function canBeTableHeader(line: string): boolean {
 
 /** Placeholder that temporarily replaces escaped pipes `\|` in table cells. */
 const ESCAPED_PIPE_PH = '\uE7FE';
+/** Pre-compiled regex to restore the escaped-pipe placeholder back to `|`. */
+const ESCAPED_PIPE_RE = /\uE7FE/g;
 
 /**
  * Split a table row into its cell texts, stripping the outer `|` delimiters
@@ -241,7 +242,7 @@ function splitTableCells(line: string): string[] {
   for (let i = 0; i < parts.length; i++) {
     // Skip the empty segment that appears when the row starts/ends with `|`
     if ((i === 0 || i === parts.length - 1) && parts[i]!.trim() === '') continue;
-    cells.push(parts[i]!.trim().replace(new RegExp(ESCAPED_PIPE_PH, 'g'), '|'));
+    cells.push(parts[i]!.trim().replace(ESCAPED_PIPE_RE, '|'));
   }
   return cells;
 }
@@ -330,12 +331,11 @@ export function markdownToWave(markdown: string): WaveContent {
     //   - it precedes a separator (`isTableHeader`), using the stricter
     //     `canBeTableHeader` so that `# Title | info` cannot start a table.
     if (isTableRow(line)) {
-      // Detect whether this is a header row: the NEXT non-empty line is a separator.
-      let nextNonEmpty = '';
-      for (let j = lineIndex + 1; j < lines.length; j++) {
-        if (lines[j]!.trim() !== '') { nextNonEmpty = lines[j]!; break; }
-      }
-      const isTableHeader = canBeTableHeader(line) && isTableSep(nextNonEmpty);
+      // Detect whether this is a header row: the IMMEDIATELY NEXT line is a separator.
+      // Markdown table syntax requires the separator to be directly adjacent — a blank
+      // line between the header and separator means it is NOT a table.
+      const nextLine = lines[lineIndex + 1] ?? '';
+      const isTableHeader = canBeTableHeader(line) && isTableSep(nextLine);
 
       // Only render as a table row when inside a real table context.
       // Plain pipe-containing text like `A | B` is passed through unchanged.
