@@ -183,37 +183,56 @@ function parseInline(text: string): Span[] {
 // ── table helpers ────────────────────────────────────────────
 
 /**
- * Regex that matches a Markdown table separator row such as:
+ * Regex that matches the cell-structure of a Markdown table separator row such as:
  *   |---|  or  |---|---|---|  or  |:---:|--:|---|  or  --- | --- | ---
  * Each "cell" consists of optional colons around one or more dashes.
  * The repeating-cell group is `*` (zero or more) so single-column
  * separators like `|---|` are matched correctly.
+ * NOTE: Use `isTableSep()` rather than testing this directly — it also
+ * requires the line to contain `|` so that standalone `---` horizontal
+ * rules are not misidentified as separators.
  */
 const TABLE_SEP_RE = /^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
 
 /**
- * Returns true when `line` looks like a Markdown table row.
- * A table row must start (optionally) with `|` and contain at least
- * one `|` separator between cells.
+ * Returns true when `line` is a Markdown table separator row.
+ * Requires at least one `|` so standalone `---` horizontal rules are
+ * not misidentified.
  */
-function isTableRow(line: string): boolean {
-  return line.includes('|') && /^\|?.+\|/.test(line);
+function isTableSep(line: string): boolean {
+  return line.includes('|') && TABLE_SEP_RE.test(line);
 }
 
 /**
+ * Returns true when `line` looks like a Markdown table row.
+ * Excludes lines that start with block-level markers (`#`, `>`, `*`, `-`,
+ * `+`, `!`) so that content like `# Title | info` or `- item | note` is
+ * never mis-classified as a table row.
+ */
+function isTableRow(line: string): boolean {
+  if (!line.includes('|')) return false;
+  if (/^[ \t]*[#>*\-+!]/.test(line)) return false;
+  return /^\|?.+\|/.test(line);
+}
+
+/** Placeholder that temporarily replaces escaped pipes `\|` in table cells. */
+const ESCAPED_PIPE_PH = '\uE7FE';
+
+/**
  * Split a table row into its cell texts, stripping the outer `|` delimiters
- * and trimming each cell.
+ * and trimming each cell.  Escaped pipes (`\|`) are preserved as literal `|`.
  * e.g. `| Source | Price |` → `['Source', 'Price']`
+ * e.g. `| a \| b | c |`    → `['a | b', 'c']`
  */
 function splitTableCells(line: string): string[] {
-  // Split on `|`, remove first (before the leading `|`) and last (after trailing `|`)
-  // elements if they're empty/whitespace.
-  const parts = line.split('|');
+  // Replace escaped pipes so they are not treated as delimiters.
+  const safe = line.replace(/\\\|/g, ESCAPED_PIPE_PH);
+  const parts = safe.split('|');
   const cells: string[] = [];
   for (let i = 0; i < parts.length; i++) {
     // Skip the empty segment that appears when the row starts/ends with `|`
     if ((i === 0 || i === parts.length - 1) && parts[i]!.trim() === '') continue;
-    cells.push(parts[i]!.trim());
+    cells.push(parts[i]!.trim().replace(new RegExp(ESCAPED_PIPE_PH, 'g'), '|'));
   }
   return cells;
 }
@@ -224,6 +243,8 @@ export function markdownToWave(markdown: string): WaveContent {
 
   const lines = markdown.split('\n');
   let inFencedBlock = false;
+  /** True when a separator row was just processed, meaning subsequent rows are table data. */
+  let inTable = false;
 
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
     if (lineIndex > 0) {
@@ -241,6 +262,7 @@ export function markdownToWave(markdown: string): WaveContent {
     // plain text so that inline patterns never fire inside a code block.
     if (/^(`{3,}|~{3,})/.test(line)) {
       inFencedBlock = !inFencedBlock;
+      inTable = false;
       // Emit the fence line itself as plain text (strip the fence marker but keep
       // any language hint after it for the opening fence).
       content += inFencedBlock ? line.replace(/^(`{3,}|~{3,})\s*/, '') : '';
@@ -256,6 +278,7 @@ export function markdownToWave(markdown: string): WaveContent {
     // misidentified as a rule after the `#` is removed.
     // Require the same char repeated 3+ times (no mixed markers like -=-).
     if (/^[ \t]*([-*=])\1{2,}[ \t]*$/.test(line)) {
+      inTable = false;
       content += '──────────';
       continue;
     }
@@ -267,48 +290,58 @@ export function markdownToWave(markdown: string): WaveContent {
     //
     // Header rows (the row immediately before a separator) are bolded.
     // Data rows are rendered as plain inline-parsed text with │ separators.
-    if (TABLE_SEP_RE.test(line)) {
+    // `inTable` tracks whether we are inside a table block (set when a
+    // separator row is encountered; cleared on any non-table line).
+    if (isTableSep(line)) {
       // Drop the separator; don't emit a newline placeholder (already emitted above).
       // To avoid a blank line where the separator was, undo the \n that was prepended.
       if (content.endsWith('\n')) content = content.slice(0, -1);
+      inTable = true; // subsequent rows are data rows
       continue;
     }
 
     if (isTableRow(line)) {
-      const cells = splitTableCells(line);
-      if (cells.length > 0) {
-        // Detect whether this is a header row: the NEXT non-empty line is a separator.
-        let nextNonEmpty = '';
-        for (let j = lineIndex + 1; j < lines.length; j++) {
-          if (lines[j]!.trim() !== '') { nextNonEmpty = lines[j]!; break; }
-        }
-        const isTableHeader = TABLE_SEP_RE.test(nextNonEmpty);
+      // Detect whether this is a header row: the NEXT non-empty line is a separator.
+      let nextNonEmpty = '';
+      for (let j = lineIndex + 1; j < lines.length; j++) {
+        if (lines[j]!.trim() !== '') { nextNonEmpty = lines[j]!; break; }
+      }
+      const isTableHeader = isTableSep(nextNonEmpty);
 
-        const rowStart = content.length;
-        // Render each cell through the inline parser, join with ' │ '
-        const cellSpans: Array<{ text: string; start: number; end: number; bold: boolean; italic: boolean; link?: string }> = [];
-        let rowText = '';
-        for (let ci = 0; ci < cells.length; ci++) {
-          if (ci > 0) rowText += ' │ ';
-          const cellStart = rowText.length;
-          const spans = parseInline(cells[ci]!);
-          for (const span of spans) {
-            if (span.text.length === 0) continue;
-            const s = rowText.length;
-            rowText += span.text;
-            cellSpans.push({ text: span.text, start: rowStart + s, end: rowStart + rowText.length, bold: span.bold || isTableHeader, italic: span.italic, link: span.link });
+      // Only render as a table row when inside a real table context:
+      //   - this row precedes a separator (isTableHeader), OR
+      //   - a separator was already seen (inTable)
+      // Plain pipe-containing text like `A | B` is passed through unchanged.
+      if (isTableHeader || inTable) {
+        const cells = splitTableCells(line);
+        if (cells.length > 0) {
+          const rowStart = content.length;
+          // Render each cell through the inline parser, join with ' │ '
+          const cellSpans: Array<{ text: string; start: number; end: number; bold: boolean; italic: boolean; link?: string }> = [];
+          let rowText = '';
+          for (let ci = 0; ci < cells.length; ci++) {
+            if (ci > 0) rowText += ' │ ';
+            const spans = parseInline(cells[ci]!);
+            for (const span of spans) {
+              if (span.text.length === 0) continue;
+              const s = rowText.length;
+              rowText += span.text;
+              cellSpans.push({ text: span.text, start: rowStart + s, end: rowStart + rowText.length, bold: span.bold || isTableHeader, italic: span.italic, link: span.link });
+            }
           }
-          void cellStart;
+          content += rowText;
+          for (const cs of cellSpans) {
+            if (cs.bold) annotations.push({ name: 'style/fontWeight', value: 'bold', range: { start: cs.start, end: cs.end } });
+            if (cs.italic) annotations.push({ name: 'style/fontStyle', value: 'italic', range: { start: cs.start, end: cs.end } });
+            if (cs.link) annotations.push({ name: 'link/manual', value: cs.link, range: { start: cs.start, end: cs.end } });
+          }
+          continue;
         }
-        content += rowText;
-        for (const cs of cellSpans) {
-          if (cs.bold) annotations.push({ name: 'style/fontWeight', value: 'bold', range: { start: cs.start, end: cs.end } });
-          if (cs.italic) annotations.push({ name: 'style/fontStyle', value: 'italic', range: { start: cs.start, end: cs.end } });
-          if (cs.link) annotations.push({ name: 'link/manual', value: cs.link, range: { start: cs.start, end: cs.end } });
-        }
-        continue;
       }
     }
+
+    // Non-table line — exit table mode
+    inTable = false;
 
     // Headers: # text, ## text, …
     const headerMatch = line.match(/^#{1,6}\s+(.*)/);

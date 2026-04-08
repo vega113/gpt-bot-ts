@@ -517,4 +517,31 @@ describe('markdownToWave — tables', () => {
     expect(content).toContain('Outro text.');
     expect(content).not.toContain('---');
   });
+
+  it('does not treat plain pipe-containing text as a table row', () => {
+    // A standalone line with a pipe (not preceded or followed by a separator)
+    // must pass through as plain text, not be reformatted as a table.
+    const { content, annotations } = markdownToWave('A | B');
+    expect(content).toBe('A | B');
+    expect(annotations.filter(a => a.name === 'style/fontWeight')).toHaveLength(0);
+  });
+
+  it('does not bold a row followed only by a standalone --- (no pipe in separator)', () => {
+    // A line like `foo | bar` followed by `---` (no pipe) must NOT be treated
+    // as a table header — `---` is a horizontal rule, not a table separator.
+    const { content, annotations } = markdownToWave('foo | bar\n---');
+    // `---` should render as a horizontal rule line, not be dropped
+    expect(content).toContain('foo | bar');
+    expect(content).toContain('──────────');
+    expect(annotations.filter(a => a.name === 'style/fontWeight')).toHaveLength(0);
+  });
+
+  it('preserves escaped pipes as literal | inside table cells', () => {
+    const md = '| a \\| b | c |\n|---|---|\n| d | e |';
+    const { content } = markdownToWave(md);
+    // The escaped pipe in the header should become a literal | in the cell text
+    expect(content.startsWith('a | b')).toBe(true);
+    expect(content).toContain('c');
+    expect(content).toContain('d');
+  });
 });
