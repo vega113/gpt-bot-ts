@@ -313,9 +313,13 @@ export function markdownToWave(markdown: string): WaveContent {
     // `inTable` tracks whether we are inside a table block (set when a
     // separator row is encountered; cleared on any non-table line).
     // `prevWasTableRow` guards the separator: a separator is only consumed
-    // when the immediately preceding rendered line was a table row, so an
-    // isolated `|---|---|` cannot silently delete user content.
-    if (isTableSep(line) && prevWasTableRow) {
+    // when the immediately preceding rendered line was a table row AND we are
+    // not already inside a table (`!inTable`).  The `!inTable` guard is
+    // critical: without it, a data row like `| --- | --- |` inside an active
+    // table would be silently deleted because `prevWasTableRow` is also true
+    // after normal data rows.  Separator consumption is restricted to the
+    // single header→delimiter transition that opens a table.
+    if (isTableSep(line) && prevWasTableRow && !inTable) {
       // Drop the separator; don't emit a newline placeholder (already emitted above).
       // To avoid a blank line where the separator was, undo the \n that was prepended.
       if (content.endsWith('\n')) content = content.slice(0, -1);

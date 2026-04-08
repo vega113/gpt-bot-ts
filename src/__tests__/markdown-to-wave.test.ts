@@ -588,4 +588,15 @@ describe('markdownToWave — tables', () => {
     // The pipe row and separator should pass through as plain text
     expect(content).toContain('A | B');
   });
+
+  it('does not silently drop a separator-like data row inside an active table', () => {
+    // A data row whose content looks like a separator (`| --- | --- |`) must not
+    // be consumed once `inTable` is already true — it should render as a data row.
+    const md = '| H1 | H2 |\n|---|---|\n| 1 | 2 |\n| --- | --- |\n| 3 | 4 |';
+    const { content } = markdownToWave(md);
+    // The separator-like data row must appear as rendered cells, not be dropped
+    expect(content).toContain('---');
+    expect(content).toContain('3');
+    expect(content).toContain('4');
+  });
 });
