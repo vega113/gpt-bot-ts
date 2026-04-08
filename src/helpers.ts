@@ -120,3 +120,63 @@ export function isBlipInThread(blipId: string, bundle: EventMessageBundle): bool
   }
   return false;
 }
+
+/**
+ * Find the content of the parent blip that a threaded blip is replying to.
+ *
+ * In Wave, inline blips are created when a user selects text in a parent blip
+ * and creates a reply. The thread ID typically equals the parent blip's ID.
+ * If not, we fall back to the most recently modified blip from the root thread.
+ *
+ * Returns the parent blip's trimmed content, or null if no parent found.
+ */
+export function findParentBlipContext(blipId: string, bundle: EventMessageBundle): string | null {
+  const threads = bundle.threads ?? {};
+  const rootBlipId = bundle.wavelet.rootBlipId;
+
+  // Find which non-root thread this blip belongs to (mirrors isBlipInThread logic).
+  // Use thread.id (not the map key) — the Wave data model only guarantees that
+  // thread.id and blipIds are present; it does not require the map key to equal
+  // thread.id.
+  // When multiple non-root threads contain this blip, prefer one whose thread.id
+  // differs from blipId (a real parent thread). A self-thread (thread.id === blipId)
+  // is recorded but scanning continues so a better parent thread is not missed.
+  let threadId: string | null = null;
+  for (const thread of Object.values(threads)) {
+    if (!thread?.blipIds?.includes(blipId)) continue;
+    // Skip the root thread — same guard as isBlipInThread
+    if (thread.blipIds.includes(rootBlipId)) continue;
+    threadId = thread.id;
+    if (thread.id !== blipId) break; // real parent found — stop here
+    // self-thread: keep scanning for a better candidate
+  }
+
+  if (!threadId) return null;
+
+  // Strategy 1: thread.id matches a blip ID (most common in Wave inline threads).
+  // Guard against thread.id === blipId to avoid a blip being its own parent.
+  const parentByThreadId = threadId !== blipId ? bundle.blips[threadId] : undefined;
+  if (parentByThreadId) {
+    const text = parentByThreadId.content.replace(/^\n/, '').trim();
+    return text || null;
+  }
+
+  // Strategy 2: most recently modified blip from the root thread.
+  // Restricting to the root thread avoids picking up unrelated content from
+  // sibling inline threads that happen to be more recently modified.
+  // Scan all candidates in order so a blank newest blip doesn't hide older
+  // blips with valid content.
+  const rootThread = Object.values(threads).find((t) => t?.blipIds?.includes(rootBlipId));
+  const rootThreadBlipIds = new Set(rootThread?.blipIds ?? [rootBlipId]);
+
+  const candidates = Object.values(bundle.blips)
+    .filter((b) => rootThreadBlipIds.has(b.blipId) && b.blipId !== blipId)
+    .sort((a, b) => (b.lastModifiedTime ?? 0) - (a.lastModifiedTime ?? 0));
+
+  for (const candidate of candidates) {
+    const text = candidate.content.replace(/^\n/, '').trim();
+    if (text) return text;
+  }
+
+  return null;
+}

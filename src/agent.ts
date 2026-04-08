@@ -91,7 +91,17 @@ Here is the answer. **Key points:** - First point - Second point - Third point. 
 - You can read the full wave conversation using the read_wave tool for more context
 - Each wave is a separate conversation. You maintain context within each wave
 - Do not repeat previous messages. Focus on the latest user message
-- If multiple users are in the wave, address them naturally`;
+- If multiple users are in the wave, address them naturally
+
+## Wave Thread Context
+
+When a message contains a \`<wave-context>\` block, the user created an **inline reply** thread attached to a specific blip in the wave. The content inside \`<wave-context>…</wave-context>\` is the parent blip's content (up to 2000 characters).
+
+- Focus your answer on the **parent blip content**, not the whole conversation
+- A short question like "tell me more about this" or "explain this" means: explain the specific content shown in the context block
+- If the context is a table row (e.g. "Israel – Iran | Ongoing proxy conflict"), address that row specifically — do not summarize the whole table
+- If the context is a paragraph or a claim, address that specific item
+- You may still use web search or read_wave for additional details, but anchor your answer to the contextual blip`;
 
 let agent: Agent<WaveContext, typeof BotDecision> | null = null;
 
@@ -114,6 +124,8 @@ export interface ProcessMessageOptions {
   userMessage: string;
   author: string;
   waveClient: WaveClient;
+  /** Content of the parent blip this message is replying to (inline thread). */
+  parentContext?: string;
 }
 
 /**
@@ -126,11 +138,30 @@ export async function processMessage({
   userMessage,
   author,
   waveClient,
+  parentContext,
 }: ProcessMessageOptions): Promise<BotDecision> {
   const a = getAgent(waveClient);
   const session = getSession(waveId);
 
-  const input = `[${author}]: ${userMessage}`;
+  // When the user's blip is an inline reply to another blip, include the
+  // parent blip's content in a structured block so the model can answer in
+  // context.  XML-style tags avoid the ambiguity that `---` delimiters cause
+  // when the parent content itself contains Markdown horizontal rules.
+  // Parentcontext is capped to avoid inflating the prompt on large blips.
+  const MAX_PARENT_CHARS = 2000;
+  const input = parentContext
+    ? (() => {
+        // Escape any closing-tag variants in the parent content so they cannot
+        // break the <wave-context> delimiter. The regex covers optional
+        // internal whitespace (e.g. </wave-context >) in addition to the
+        // canonical form.
+        const safeContext = parentContext
+          .slice(0, MAX_PARENT_CHARS)
+          .replace(/<\/\s*wave-context\s*>/gi, '[/wave-context]');
+        const truncationNote = parentContext.length > MAX_PARENT_CHARS ? '\n[…truncated]' : '';
+        return `<wave-context>\n${safeContext}${truncationNote}\n</wave-context>\n[${author}]: ${userMessage}`;
+      })()
+    : `[${author}]: ${userMessage}`;
 
   const result = await run(a, input, {
     session,

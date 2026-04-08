@@ -23,6 +23,7 @@ import {
   isValidBundle,
   isBeingEdited,
   isBlipInThread,
+  findParentBlipContext,
 } from './helpers.js';
 import type { BlipData, EventMessageBundle } from './helpers.js';
 import { markdownToWave } from './markdown-to-wave.js';
@@ -272,6 +273,15 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
     }
   };
 
+  // For inline-thread blips, find the parent blip content for context
+  let parentContext: string | undefined;
+  if (isInThread) {
+    parentContext = findParentBlipContext(blip.blipId, bundle) ?? undefined;
+    if (parentContext) {
+      console.log(`[context] wave=${waveId} parentContextLength=${parentContext.length}`);
+    }
+  }
+
   // Track in-flight job for graceful shutdown
   activeJobs++;
   // Process asynchronously and post reply via data API
@@ -281,6 +291,7 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
       userMessage,
       author,
       waveClient,
+      parentContext,
     });
 
     if (!decision.shouldReply) {

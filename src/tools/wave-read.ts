@@ -31,14 +31,35 @@ export function createWaveReadTool(waveClient: WaveClient) {
 
       const wave = await waveClient.fetchWave(waveId);
 
+      const rootBlipId = wave.waveletData.rootBlipId;
+      const threads = (wave.threads ?? {}) as Record<string, { id: string; blipIds: string[] }>;
+
+      // Precompute blipId → parentBlipId in one pass so the subsequent .map()
+      // is O(blips) instead of O(blips × threads × blipIds).
+      // Use thread.id (not the map key) — the data model only guarantees thread.id
+      // and blipIds; map keys are not required to equal thread.id.
+      const blipToParent = new Map<string, string>();
+      for (const thread of Object.values(threads)) {
+        if (!thread?.blipIds?.length) continue;
+        if (thread.blipIds.includes(rootBlipId)) continue; // skip root thread
+        if (!wave.blips[thread.id]) continue; // thread.id must match a real blip
+        for (const bid of thread.blipIds) {
+          blipToParent.set(bid, thread.id);
+        }
+      }
+
       // Sort blips by lastModifiedTime for chronological order
       const blips = Object.values(wave.blips)
         .sort((a, b) => (a.lastModifiedTime ?? 0) - (b.lastModifiedTime ?? 0))
-        .map((b) => ({
-          blipId: b.blipId,
-          author: b.contributors?.[0] ?? 'unknown',
-          content: b.content.replace(/^\n/, '').trim(),
-        }));
+        .map((b) => {
+          const parentBlipId = blipToParent.get(b.blipId);
+          return {
+            blipId: b.blipId,
+            author: b.contributors?.[0] ?? 'unknown',
+            content: b.content.replace(/^\n/, '').trim(),
+            ...(parentBlipId ? { inlineReplyTo: parentBlipId } : {}),
+          };
+        });
 
       return JSON.stringify(
         {
