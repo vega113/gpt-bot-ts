@@ -261,15 +261,15 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
   // the filter below is a defense-in-depth guard in case other annotation sources
   // are added in future.
   const SAFE_LINK_RE = /^https?:\/\/|^mailto:/i;
-  const postReply = async (markdown: string) => {
+  const postReply = async (markdown: string): Promise<string> => {
     const { content, annotations } = markdownToWave(markdown);
     const safeAnnotations = annotations.filter(
       (a) => a.name !== 'link/manual' || SAFE_LINK_RE.test(a.value),
     );
     if (isInThread) {
-      await waveClient.continueThread(waveId, blip.blipId, content, waveletId, safeAnnotations);
+      return waveClient.continueThread(waveId, blip.blipId, content, waveletId, safeAnnotations);
     } else {
-      await waveClient.replyToBlip(waveId, blip.blipId, content, waveletId, safeAnnotations);
+      return waveClient.replyToBlip(waveId, blip.blipId, content, waveletId, safeAnnotations);
     }
   };
 
@@ -286,7 +286,7 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
   activeJobs++;
   // Process asynchronously and post reply via data API
   try {
-    const decision = await processMessage({
+    const { decision, pendingImages } = await processMessage({
       waveId,
       userMessage,
       author,
@@ -302,8 +302,20 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
 
     // Guard: shouldReply=true with null response is a malformed model output
     const replyText = decision.response ?? 'I had trouble generating a response. Please try again.';
-    await postReply(replyText);
-    console.log(`[replied] wave=${waveId} length=${replyText.length}`);
+    const newBlipId = await postReply(replyText);
+    console.log(`[replied] wave=${waveId} length=${replyText.length} blipId=${newBlipId}`);
+
+    // Insert any images generated during the agent run into the reply blip
+    if (pendingImages.length > 0 && newBlipId) {
+      for (const img of pendingImages) {
+        try {
+          await waveClient.insertImage(waveId, waveletId, newBlipId, img.attachmentId, img.caption);
+          console.log(`[image] wave=${waveId} inserted ${img.attachmentId} into blip=${newBlipId}`);
+        } catch (imgErr) {
+          console.error(`[image-error] wave=${waveId} failed to insert ${img.attachmentId}`, imgErr);
+        }
+      }
+    }
   } catch (err) {
     console.error(`[error] wave=${waveId}`, err);
     respondedContent.delete(blip.blipId);
