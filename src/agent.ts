@@ -125,7 +125,7 @@ function getAgent(waveClient: WaveClient): Agent<WaveContext, typeof BotDecision
   agent = new Agent<WaveContext, typeof BotDecision>({
     name: BOT_NAME,
     instructions: SYSTEM_PROMPT,
-    tools: [webSearch, createWaveReadTool(waveClient), createImageGenTool(waveClient)],
+    tools: [webSearch, createWaveReadTool(waveClient), createImageGenTool()],
     outputType: BotDecision,
   });
 

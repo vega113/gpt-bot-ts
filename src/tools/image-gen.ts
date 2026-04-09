@@ -11,7 +11,6 @@ import { tool } from '@openai/agents';
 import type { RunContext } from '@openai/agents';
 import { z } from 'zod';
 import OpenAI from 'openai';
-import type { WaveClient } from '../wave-client.js';
 import type { WaveContext } from '../agent.js';
 
 const ROBOT_ADDRESS = process.env['ROBOT_ADDRESS'] ?? 'gpt-ts-bot@supawave.ai';
@@ -25,10 +24,10 @@ function getOpenAI(): OpenAI {
 }
 
 /**
- * Create a generate_image tool bound to a specific WaveClient instance.
- * The waveId comes from RunContext, not from the model.
+ * Create a generate_image tool.
+ * The wave/wavelet context comes from RunContext, not from the model.
  */
-export function createImageGenTool(waveClient: WaveClient) {
+export function createImageGenTool() {
   return tool({
     name: 'generate_image',
     description:
