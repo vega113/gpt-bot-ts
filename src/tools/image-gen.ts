@@ -39,15 +39,13 @@ export function createImageGenTool() {
       prompt: z.string().describe('Detailed description of the image to generate'),
       size: z
         .enum(['1024x1024', '1536x1024', '1024x1536'])
-        .optional()
-        .describe('Image dimensions. Default: 1024x1024. Use 1536x1024 for landscape, 1024x1536 for portrait'),
+        .describe('Image dimensions: 1024x1024 (square), 1536x1024 (landscape), 1024x1536 (portrait)'),
       caption: z
         .string()
-        .optional()
-        .describe('Short caption for the image (shown below it in Wave). Defaults to a shortened version of the prompt'),
+        .describe('Short caption for the image shown below it in Wave'),
     }),
     async execute(
-      args: { prompt: string; size?: '1024x1024' | '1536x1024' | '1024x1536'; caption?: string },
+      args: { prompt: string; size: '1024x1024' | '1536x1024' | '1024x1536'; caption: string },
       runContext?: RunContext<WaveContext>,
     ) {
       if (!runContext?.context) {
@@ -61,7 +59,7 @@ export function createImageGenTool() {
         const result = await openai.images.generate({
           model: 'gpt-image-1',
           prompt: args.prompt,
-          size: args.size ?? '1024x1024',
+          size: args.size,
           quality: 'medium',
           n: 1,
         });
@@ -77,7 +75,7 @@ export function createImageGenTool() {
         //    orphaned attachments if the reply fails.
         const attachmentId = `att+img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
         const fileName = `generated_${Date.now()}.png`;
-        const caption = args.caption ?? args.prompt.slice(0, 100);
+        const caption = args.caption || args.prompt.slice(0, 100);
 
         if (runContext?.context) {
           const ctx = runContext.context as WaveContext;
