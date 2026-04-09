@@ -391,7 +391,7 @@ export class WaveClient {
       },
     ]);
 
-    if (response.error) {
+    if (response?.error) {
       throw new Error(`importAttachment error: ${response.error.message}`);
     }
   }
@@ -440,7 +440,8 @@ export class WaveClient {
       },
     ]);
 
-    if (response.error) {
+    // document.modify may return null for successful operations
+    if (response?.error) {
       throw new Error(`insertImage error: ${response.error.message}`);
     }
   }
