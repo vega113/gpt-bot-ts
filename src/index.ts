@@ -152,6 +152,59 @@ function handleSelfRemoved(bundle: EventMessageBundle): void {
   }
 }
 
+// ── welcome blip ────────────────────────────────────────────
+
+const BOT_SHORT_NAME = ROBOT_ADDRESS.split('@')[0];
+
+const WELCOME_MARKDOWN = `**Hi there! I'm ${BOT_SHORT_NAME}** — your AI assistant inside this wave.
+
+I'm ready to help! Here are some things I can do:
+
+**Ask me anything**
+- Research topics on the web
+- Summarize articles or complex subjects
+- Answer factual questions
+
+**Real-time information**
+- "What's the current Bitcoin price?"
+- "What's the weather in Tel Aviv?"
+- "How is NVDA stock doing today?"
+
+**Create and brainstorm**
+- Draft emails, messages, or documents
+- Brainstorm ideas for projects
+- Generate images — just ask me to draw something!
+
+**Collaborate**
+- Reply to any of my blips to continue the conversation
+- Select text in a blip and create an inline reply for focused discussion
+- @-mention me anywhere: **@${BOT_SHORT_NAME}**
+
+Just type your question below and I'll get right on it!`;
+
+/**
+ * Handle WAVELET_SELF_ADDED — post a welcome blip when the bot joins a wave.
+ * Runs asynchronously (fire-and-forget) so the HTTP response is not delayed.
+ */
+function handleSelfAdded(bundle: EventMessageBundle): void {
+  const hasSelfAdded = bundle.events.some((e) => e.type === 'WAVELET_SELF_ADDED');
+  if (!hasSelfAdded) return;
+
+  const { waveId, waveletId } = bundle.wavelet;
+  console.log(`[welcome] wave=${waveId} bot added, posting welcome blip`);
+
+  // Fire-and-forget — errors are logged but don't block the response.
+  (async () => {
+    try {
+      const { content, annotations } = markdownToWave(WELCOME_MARKDOWN);
+      await waveClient.appendBlip(waveId, content, waveletId, annotations);
+      console.log(`[welcome] wave=${waveId} welcome blip posted`);
+    } catch (err) {
+      console.error(`[welcome-error] wave=${waveId}`, err);
+    }
+  })();
+}
+
 // ── express app ──────────────────────────────────────────────
 
 const app = express();
@@ -229,6 +282,7 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
 
   // Handle lifecycle events
   handleSelfRemoved(bundle);
+  handleSelfAdded(bundle);
 
   // Extract a finished blip to respond to
   const finished = extractFinishedBlip(bundle);
