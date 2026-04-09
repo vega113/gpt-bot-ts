@@ -84,6 +84,9 @@ let shutdownRequested = false;
 /** Track content we've already responded to, keyed by blipId. */
 const respondedContent = new Map<string, string>();
 
+/** Track wavelets we've already sent a welcome blip to (dedup redeliveries). */
+const welcomedWavelets = new Set<string>();
+
 // ── helpers ──────────────────────────────────────────────────
 // Pure helpers (mentionsBot, isValidBundle, isBeingEdited, isBlipInThread)
 // are imported from ./helpers.js above.
@@ -194,6 +197,12 @@ function handleSelfAdded(bundle: EventMessageBundle): void {
   if (!hasSelfAdded) return;
 
   const { waveId, waveletId } = bundle.wavelet;
+
+  // Deduplicate: skip if we already welcomed this wavelet (handles redeliveries).
+  const waveletKey = `${waveId}/${waveletId}`;
+  if (welcomedWavelets.has(waveletKey)) return;
+  welcomedWavelets.add(waveletKey);
+
   const botName = bundle.robotAddress.split('@')[0];
   console.log(`[welcome] wave=${waveId} bot added, posting welcome blip`);
 
@@ -204,6 +213,8 @@ function handleSelfAdded(bundle: EventMessageBundle): void {
       await waveClient.appendBlip(waveId, content, waveletId, annotations);
       console.log(`[welcome] wave=${waveId} welcome blip posted`);
     } catch (err) {
+      // Remove from set so a retry can attempt again
+      welcomedWavelets.delete(waveletKey);
       console.error(`[welcome-error] wave=${waveId}`, err);
     }
   })();
