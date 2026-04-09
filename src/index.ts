@@ -392,10 +392,7 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
       }
     }
   } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    const errStack = err instanceof Error ? err.stack : '';
-    console.error(`[error] wave=${waveId} msg=${errMsg}`);
-    if (errStack) console.error(`[error] stack=${errStack}`);
+    console.error(`[error] wave=${waveId}`, err);
     respondedContent.delete(blip.blipId);
     try {
       await postReply(

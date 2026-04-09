@@ -10,7 +10,6 @@ import { Agent, run } from '@openai/agents';
 import { z } from 'zod';
 import { webSearch } from './tools/web-search.js';
 import { createWaveReadTool } from './tools/wave-read.js';
-import { createImageGenTool } from './tools/image-gen.js';
 import { getSession } from './context.js';
 import { WaveClient } from './wave-client.js';
 import { sanitizeLlmResponse, linkifyBareUrls } from './sanitize-response.js';
@@ -118,29 +117,39 @@ When a message contains a \`<wave-context>\` block, the user created an **inline
 - You may still use web search or read_wave for additional details, but anchor your answer to the contextual blip`;
 
 let agent: Agent<WaveContext, typeof BotDecision> | null = null;
+/** Single-flight guard: concurrent callers await the same init promise. */
+let agentInitPromise: Promise<Agent<WaveContext, typeof BotDecision>> | null = null;
 
 /** Lazily initialize the agent (needs WaveClient for tools). */
-function getAgent(waveClient: WaveClient): Agent<WaveContext, typeof BotDecision> {
+async function getAgent(waveClient: WaveClient): Promise<Agent<WaveContext, typeof BotDecision>> {
   if (agent) return agent;
+  if (agentInitPromise) return agentInitPromise;
 
-  // Build tool list defensively — image gen is optional; if it fails to
-  // register the bot should still work for text conversations.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const tools: any[] = [webSearch, createWaveReadTool(waveClient)];
-  try {
-    tools.push(createImageGenTool());
-  } catch (err) {
-    console.error('[agent] Failed to register generate_image tool, continuing without it:', err);
-  }
+  agentInitPromise = (async () => {
+    // Core tools are always available; image gen is optional.
+    // Dynamic import isolates the openai dependency — if it fails to load
+    // (missing package, bad version, etc.) the bot still works for text.
+    const tools = [webSearch, createWaveReadTool(waveClient)];
+    try {
+      const { createImageGenTool } = await import('./tools/image-gen.js');
+      tools.push(createImageGenTool());
+    } catch (err) {
+      console.error('[agent] Failed to load generate_image tool, continuing without it:', err);
+    }
 
-  agent = new Agent<WaveContext, typeof BotDecision>({
-    name: BOT_NAME,
-    instructions: SYSTEM_PROMPT,
-    tools,
-    outputType: BotDecision,
+    agent = new Agent<WaveContext, typeof BotDecision>({
+      name: BOT_NAME,
+      instructions: SYSTEM_PROMPT,
+      tools,
+      outputType: BotDecision,
+    });
+
+    return agent;
+  })().finally(() => {
+    agentInitPromise = null;
   });
 
-  return agent;
+  return agentInitPromise;
 }
 
 export interface ProcessMessageOptions {
@@ -173,7 +182,7 @@ export async function processMessage({
   waveClient,
   parentContext,
 }: ProcessMessageOptions): Promise<ProcessResult> {
-  const a = getAgent(waveClient);
+  const a = await getAgent(waveClient);
   const session = getSession(waveId);
 
   // When the user's blip is an inline reply to another blip, include the
@@ -205,8 +214,7 @@ export async function processMessage({
       context,
     });
   } catch (runErr) {
-    console.error('[agent] run() failed:', runErr instanceof Error ? runErr.message : runErr);
-    if (runErr instanceof Error && runErr.stack) console.error('[agent] stack:', runErr.stack);
+    console.error(`[agent] run() failed (waveId=${waveId}):`, runErr);
     throw runErr;
   }
 
