@@ -621,6 +621,31 @@ describe('WaveClient', () => {
     });
   });
 
+  describe('deleteBlip', () => {
+    it('calls blip.delete with the requested blip id', async () => {
+      mockJsonResponse([{ id: 'delete-1', data: {} }]);
+      const client = new WaveClient(TOKEN);
+      await client.deleteBlip(WAVE_ID, WAVELET_ID, 'b+placeholder');
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+      expect(body[0].method).toBe('blip.delete');
+      expect(body[0].params).toEqual({
+        waveId: WAVE_ID,
+        waveletId: WAVELET_ID,
+        blipId: 'b+placeholder',
+      });
+    });
+
+    it('throws when blip.delete returns an error', async () => {
+      mockJsonResponse([{ id: 'delete-1', error: { code: 403, message: 'Forbidden' } }]);
+      const client = new WaveClient(TOKEN);
+
+      await expect(
+        client.deleteBlip(WAVE_ID, WAVELET_ID, 'b+placeholder'),
+      ).rejects.toThrow('deleteBlip error: Forbidden');
+    });
+  });
+
   describe('refreshToken bare-string validation', () => {
     it('rejects a non-JWT bare string (e.g. HTML)', async () => {
       fetchMock.mockResolvedValueOnce({
