@@ -525,6 +525,14 @@ describe('WaveClient', () => {
         client.importAttachment(WAVE_ID, WAVELET_ID, 'att+1', 'f.png', 'bot', 'data'),
       ).rejects.toThrow('importAttachment error: Upload failed');
     });
+
+    it('throws when the RPC response item is missing', async () => {
+      mockJsonResponse([null]);
+      const client = new WaveClient(TOKEN);
+      await expect(
+        client.importAttachment(WAVE_ID, WAVELET_ID, 'att+1', 'f.png', 'bot', 'data'),
+      ).rejects.toThrow('importAttachment error: missing response');
+    });
   });
 
   describe('insertImage', () => {
@@ -562,6 +570,22 @@ describe('WaveClient', () => {
       await expect(
         client.insertImage(WAVE_ID, WAVELET_ID, 'b+x', 'att+1', 'img'),
       ).rejects.toThrow('insertImage error: Blip not found');
+    });
+
+    it('treats a null document.modify response as success', async () => {
+      mockJsonResponse([null]);
+      const client = new WaveClient(TOKEN);
+      await expect(
+        client.insertImage(WAVE_ID, WAVELET_ID, 'b+reply', 'att+1', 'img'),
+      ).resolves.toBeUndefined();
+    });
+
+    it('throws when the RPC response item is missing', async () => {
+      mockJsonResponse([]);
+      const client = new WaveClient(TOKEN);
+      await expect(
+        client.insertImage(WAVE_ID, WAVELET_ID, 'b+reply', 'att+1', 'img'),
+      ).rejects.toThrow('insertImage error: missing response');
     });
   });
 

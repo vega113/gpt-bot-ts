@@ -61,6 +61,7 @@ export function createImageGenTool() {
           prompt: args.prompt,
           size: args.size,
           quality: 'medium',
+          output_format: 'png',
           n: 1,
         });
 
