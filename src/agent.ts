@@ -122,10 +122,20 @@ let agent: Agent<WaveContext, typeof BotDecision> | null = null;
 function getAgent(waveClient: WaveClient): Agent<WaveContext, typeof BotDecision> {
   if (agent) return agent;
 
+  // Build tool list defensively — image gen is optional; if it fails to
+  // register the bot should still work for text conversations.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const tools: any[] = [webSearch, createWaveReadTool(waveClient)];
+  try {
+    tools.push(createImageGenTool());
+  } catch (err) {
+    console.error('[agent] Failed to register generate_image tool, continuing without it:', err);
+  }
+
   agent = new Agent<WaveContext, typeof BotDecision>({
     name: BOT_NAME,
     instructions: SYSTEM_PROMPT,
-    tools: [webSearch, createWaveReadTool(waveClient), createImageGenTool()],
+    tools,
     outputType: BotDecision,
   });
 
@@ -186,11 +196,18 @@ export async function processMessage({
     : `[${author}]: ${userMessage}`;
 
   const context: WaveContext = { waveId, waveletId, pendingImages: [] };
-  const result = await run(a, input, {
-    session,
-    maxTurns: 10,
-    context,
-  });
+  let result;
+  try {
+    result = await run(a, input, {
+      session,
+      maxTurns: 10,
+      context,
+    });
+  } catch (runErr) {
+    console.error('[agent] run() failed:', runErr instanceof Error ? runErr.message : runErr);
+    if (runErr instanceof Error && runErr.stack) console.error('[agent] stack:', runErr.stack);
+    throw runErr;
+  }
 
   if (result.finalOutput) {
     const decision = result.finalOutput;
