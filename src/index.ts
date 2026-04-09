@@ -154,9 +154,9 @@ function handleSelfRemoved(bundle: EventMessageBundle): void {
 
 // ── welcome blip ────────────────────────────────────────────
 
-const BOT_SHORT_NAME = ROBOT_ADDRESS.split('@')[0];
-
-const WELCOME_MARKDOWN = `**Hi there! I'm ${BOT_SHORT_NAME}** — your AI assistant inside this wave.
+/** Build a welcome message using the bot name from the event bundle. */
+function buildWelcomeMarkdown(botName: string): string {
+  return `**Hi there! I'm ${botName}** — your AI assistant inside this wave.
 
 I'm ready to help! Here are some things I can do:
 
@@ -178,12 +178,15 @@ I'm ready to help! Here are some things I can do:
 **Collaborate**
 - Reply to any of my blips to continue the conversation
 - Select text in a blip and create an inline reply for focused discussion
-- @-mention me anywhere: **@${BOT_SHORT_NAME}**
+- @-mention me anywhere: **@${botName}**
 
 Just type your question below and I'll get right on it!`;
+}
 
 /**
  * Handle WAVELET_SELF_ADDED — post a welcome blip when the bot joins a wave.
+ * Uses bundle.robotAddress (not the env var) so the displayed @-mention
+ * always matches what Wave believes the bot's address is.
  * Runs asynchronously (fire-and-forget) so the HTTP response is not delayed.
  */
 function handleSelfAdded(bundle: EventMessageBundle): void {
@@ -191,12 +194,13 @@ function handleSelfAdded(bundle: EventMessageBundle): void {
   if (!hasSelfAdded) return;
 
   const { waveId, waveletId } = bundle.wavelet;
+  const botName = bundle.robotAddress.split('@')[0];
   console.log(`[welcome] wave=${waveId} bot added, posting welcome blip`);
 
   // Fire-and-forget — errors are logged but don't block the response.
   (async () => {
     try {
-      const { content, annotations } = markdownToWave(WELCOME_MARKDOWN);
+      const { content, annotations } = markdownToWave(buildWelcomeMarkdown(botName));
       await waveClient.appendBlip(waveId, content, waveletId, annotations);
       console.log(`[welcome] wave=${waveId} welcome blip posted`);
     } catch (err) {
