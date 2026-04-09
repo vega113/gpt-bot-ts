@@ -29,10 +29,13 @@ const BotDecision = z.object({
 });
 export type BotDecision = z.infer<typeof BotDecision>;
 
-/** Image pending insertion after the reply blip is created. */
+/** Image pending upload + insertion after the reply blip is created. */
 export interface PendingImage {
   attachmentId: string;
+  fileName: string;
   caption: string;
+  /** Base64-encoded image data — uploaded only after the reply blip exists. */
+  base64Data: string;
 }
 
 /** Context passed to tools via RunContext. */

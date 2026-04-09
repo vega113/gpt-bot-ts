@@ -306,14 +306,19 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
     const newBlipId = await postReply(replyText);
     console.log(`[replied] wave=${waveId} length=${replyText.length} blipId=${newBlipId}`);
 
-    // Insert any images generated during the agent run into the reply blip
+    // Upload and insert any images generated during the agent run.
+    // Both importAttachment and insertImage are deferred until the reply
+    // blip exists — this avoids orphaned attachments if the reply fails.
     if (pendingImages.length > 0 && newBlipId) {
       for (const img of pendingImages) {
         try {
+          await waveClient.importAttachment(
+            waveId, waveletId, img.attachmentId, img.fileName, ROBOT_ADDRESS, img.base64Data,
+          );
           await waveClient.insertImage(waveId, waveletId, newBlipId, img.attachmentId, img.caption);
-          console.log(`[image] wave=${waveId} inserted ${img.attachmentId} into blip=${newBlipId}`);
+          console.log(`[image] wave=${waveId} uploaded+inserted ${img.attachmentId} into blip=${newBlipId}`);
         } catch (imgErr) {
-          console.error(`[image-error] wave=${waveId} failed to insert ${img.attachmentId}`, imgErr);
+          console.error(`[image-error] wave=${waveId} failed to upload/insert ${img.attachmentId}`, imgErr);
         }
       }
     }

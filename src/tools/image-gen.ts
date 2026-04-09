@@ -50,9 +50,7 @@ export function createImageGenTool(waveClient: WaveClient) {
       args: { prompt: string; size?: '1024x1024' | '1536x1024' | '1024x1536'; caption?: string },
       runContext?: RunContext<WaveContext>,
     ) {
-      const waveId = runContext?.context.waveId;
-      const waveletId = runContext?.context.waveletId;
-      if (!waveId || !waveletId) {
+      if (!runContext?.context) {
         return 'Error: no wave context available.';
       }
 
@@ -73,30 +71,22 @@ export function createImageGenTool(waveClient: WaveClient) {
           return 'Error: image generation returned no data.';
         }
 
-        // 2. Upload as attachment to the wavelet
+        // 2. Track the pending image in context — the actual upload
+        //    (importAttachment + insertImage) is deferred until after the
+        //    reply blip is successfully created by index.ts.  This avoids
+        //    orphaned attachments if the reply fails.
         const attachmentId = `att+img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
         const fileName = `generated_${Date.now()}.png`;
-
-        await waveClient.importAttachment(
-          waveId,
-          waveletId,
-          attachmentId,
-          fileName,
-          ROBOT_ADDRESS,
-          base64Data,
-        );
-
-        console.log(`[image-gen] Uploaded attachment ${attachmentId} to wave=${waveId}`);
-
-        // 3. Track the pending image in context so the reply code can insert it
         const caption = args.caption ?? args.prompt.slice(0, 100);
+
         if (runContext?.context) {
           const ctx = runContext.context as WaveContext;
           if (!ctx.pendingImages) ctx.pendingImages = [];
-          ctx.pendingImages.push({ attachmentId, caption });
+          ctx.pendingImages.push({ attachmentId, fileName, caption, base64Data });
         }
 
-        return `Image generated and uploaded as attachment ${attachmentId}. Caption: "${caption}". The image will be inserted into the reply blip.`;
+        console.log(`[image-gen] Image generated, deferred upload as ${attachmentId}`);
+        return `Image generated successfully. Caption: "${caption}". The image will be inserted into the reply blip.`;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         console.error(`[image-gen] Error:`, message);
