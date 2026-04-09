@@ -84,6 +84,9 @@ let shutdownRequested = false;
 /** Track content we've already responded to, keyed by blipId. */
 const respondedContent = new Map<string, string>();
 
+/** Track wavelets we've already sent a welcome blip to (dedup redeliveries). */
+const welcomedWavelets = new Set<string>();
+
 // ── helpers ──────────────────────────────────────────────────
 // Pure helpers (mentionsBot, isValidBundle, isBeingEdited, isBlipInThread)
 // are imported from ./helpers.js above.
@@ -150,6 +153,71 @@ function handleSelfRemoved(bundle: EventMessageBundle): void {
       console.log(`[session-cleared] wave=${bundle.wavelet.waveId}`);
     }
   }
+}
+
+// ── welcome blip ────────────────────────────────────────────
+
+/** Build a welcome message using the bot name from the event bundle. */
+function buildWelcomeMarkdown(botName: string): string {
+  return `**Hi there! I'm ${botName}** — your AI assistant inside this wave.
+
+I'm ready to help! Here are some things I can do:
+
+**Ask me anything**
+- Research topics on the web
+- Summarize articles or complex subjects
+- Answer factual questions
+
+**Real-time information**
+- "What's the current Bitcoin price?"
+- "What's the weather in Tel Aviv?"
+- "How is NVDA stock doing today?"
+
+**Create and brainstorm**
+- Draft emails, messages, or documents
+- Brainstorm ideas for projects
+- Generate images — just ask me to draw something!
+
+**Collaborate**
+- Reply to any of my blips to continue the conversation
+- Select text in a blip and create an inline reply for focused discussion
+- @-mention me anywhere: **@${botName}**
+
+Just type your question below and I'll get right on it!`;
+}
+
+/**
+ * Handle WAVELET_SELF_ADDED — post a welcome blip when the bot joins a wave.
+ * Uses bundle.robotAddress (not the env var) so the displayed @-mention
+ * always matches what Wave believes the bot's address is.
+ * Runs asynchronously (fire-and-forget) so the HTTP response is not delayed.
+ */
+function handleSelfAdded(bundle: EventMessageBundle): void {
+  const hasSelfAdded = bundle.events.some((e) => e.type === 'WAVELET_SELF_ADDED');
+  if (!hasSelfAdded) return;
+
+  const { waveId, waveletId } = bundle.wavelet;
+
+  // Deduplicate: skip if we already welcomed this wavelet (handles redeliveries).
+  const waveletKey = `${waveId}/${waveletId}`;
+  if (welcomedWavelets.has(waveletKey)) return;
+  welcomedWavelets.add(waveletKey);
+
+  const botName = bundle.robotAddress.split('@')[0];
+  console.log(`[welcome] wave=${waveId} bot added, posting welcome blip`);
+
+  // Fire-and-forget — errors are logged but don't block the response.
+  (async () => {
+    try {
+      const { content, annotations } = markdownToWave(buildWelcomeMarkdown(botName));
+      await waveClient.appendBlip(waveId, content, waveletId, annotations);
+      console.log(`[welcome] wave=${waveId} welcome blip posted`);
+    } catch (err) {
+      // Remove from set so a retry can attempt again
+      welcomedWavelets.delete(waveletKey);
+      console.error(`[welcome-error] wave=${waveId}`, err);
+    }
+  })();
 }
 
 // ── express app ──────────────────────────────────────────────
@@ -229,6 +297,7 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
 
   // Handle lifecycle events
   handleSelfRemoved(bundle);
+  handleSelfAdded(bundle);
 
   // Extract a finished blip to respond to
   const finished = extractFinishedBlip(bundle);
