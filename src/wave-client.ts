@@ -444,7 +444,12 @@ export class WaveClient {
       },
     ]);
 
-    // document.modify may return null for successful operations
+    // document.modify may return null for successful operations.
+    // Only an omitted array entry is treated as malformed.
+    if (response === undefined) {
+      throw new Error('insertImage error: missing response');
+    }
+
     if (response?.error) {
       throw new Error(`insertImage error: ${response.error.message}`);
     }

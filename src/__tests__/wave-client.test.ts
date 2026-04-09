@@ -579,6 +579,14 @@ describe('WaveClient', () => {
         client.insertImage(WAVE_ID, WAVELET_ID, 'b+reply', 'att+1', 'img'),
       ).resolves.toBeUndefined();
     });
+
+    it('throws when the RPC response item is missing', async () => {
+      mockJsonResponse([]);
+      const client = new WaveClient(TOKEN);
+      await expect(
+        client.insertImage(WAVE_ID, WAVELET_ID, 'b+reply', 'att+1', 'img'),
+      ).rejects.toThrow('insertImage error: missing response');
+    });
   });
 
   describe('replyToBlip newBlipId', () => {
