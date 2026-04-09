@@ -119,7 +119,7 @@ export function linkifyBareUrls(text: string): string {
   // Group 5: bare URL → linkify
   const COMBINED_RE = new RegExp(
     '(```[\\s\\S]*?(?:```|$)|~~~[\\s\\S]*?(?:~~~|$))'     + // fenced code block (incl. unterminated)
-    '|(`[^`]+`)'                                          + // inline code span
+    '|(``(?:[^`]|`(?!`))+``|`[^`]+`)'                      + // inline code span (double-backtick or single)
     '|(\\[[^\\]]+\\]\\((?:[^()]+|\\([^()]*\\))*\\))'     + // existing markdown link
     '|\\((' +
       '(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)+(?:' + TLD_RE + ')' +

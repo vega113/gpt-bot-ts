@@ -380,6 +380,11 @@ describe('linkifyBareUrls', () => {
     expect(linkifyBareUrls(input)).toBe(input);
   });
 
+  it('does not linkify URLs inside double-backtick code spans', () => {
+    const input = 'Use ``foo `https://example.com` bar`` here.';
+    expect(linkifyBareUrls(input)).toBe(input);
+  });
+
   it('handles Wikipedia-style URLs with balanced parens', () => {
     const input = 'See https://en.wikipedia.org/wiki/Foo_(bar) for details.';
     expect(linkifyBareUrls(input)).toBe(
