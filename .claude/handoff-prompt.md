@@ -28,7 +28,7 @@ A Wave robot that receives event bundles from the SupaWave server, processes use
 
 ## Architecture & Data Flow
 
-```
+```text
 SupaWave Server → POST /_wave/robot/jsonrpc (EventMessageBundle)
   → Validate bundle (isValidBundle)
   → Handle lifecycle (WAVELET_SELF_ADDED → welcome blip, WAVELET_SELF_REMOVED → clear session)
@@ -48,24 +48,25 @@ SupaWave Server → POST /_wave/robot/jsonrpc (EventMessageBundle)
 **CRITICAL:** OpenAI's API requires ALL properties in function tool schemas to appear in the `required` array. Using `.optional()` in Zod causes the property to be omitted from `required`, which produces a 400 error on EVERY agent run — not just when the tool is called. This was the root cause of a production outage (PR #16).
 
 ### SupaWave API Quirks
-- `document.modify` returns `[null]` for successful IMAGE insertions, not `{id, data}`. Always use `response?.error` (optional chaining) when checking responses from this method.
+- `document.modify` returns `[null]` for successful IMAGE insertions, not `{id, data}`. Callers must use `response?.error` (optional chaining) when checking responses from this method. On `master`, `WaveClient.insertImage()` still uses `response.error`, so successful IMAGE insertions can still crash until PR #19 lands.
 - Blip content must start with `\n`. WaveClient handles this via `ensureNewline()` and offsets annotation ranges by 1.
 - The `threads` map key is NOT guaranteed to equal `thread.id`. Always use `thread.id` for logic.
 - `user/d/{sessionId}` annotations are PERMANENT. The editing signal is in the VALUE format: `"userId,startMs,"` = still editing, `"userId,startMs,endMs"` = done.
 
 ### Citation Sanitization
 OpenAI web search injects citation markers in multiple formats:
-- `【turn0finance0】`, `【citeturn0finance0】`, `【cite†turn0finance0】`
-- `.citeturn0finance0` (ASCII form)
-- The regex `/【(?:cite†?)?turn\d+[^】\n]*】/gi` strips bracket forms
+- Bracket forms such as `【turn0finance0】`, `【citeturn0finance0】`, `【cite†turn0finance0】`, and suffixed variants like `【turn0search0†source】`
+- ASCII-mangled forms such as `.citeturn0finance0` and `citeturn0search0`
+- `src/sanitize-response.ts` is the source of truth for the exact stripping rules and follow-up cleanup
+- Must strip citation artifacts without false positives like `【cite turn2 plan】`
 - Must NOT strip `【Saturn2026】` or `【return plan】` (anchored to bracket start)
 
 ### Image Support (New, may need debugging)
 - `generate_image` tool generates image via OpenAI, stores base64 in `pendingImages`
 - Upload (`importAttachment`) and insertion (`insertImage`) are DEFERRED to `index.ts` — only after the reply blip is successfully created
 - The image ⚠️ warning icon in Wave is a known rendering issue being investigated on the SupaWave side
-- `getAgent()` is async with single-flight guard (`agentInitPromise`) to prevent race conditions
-- Image tool uses dynamic import to isolate the `openai` dependency
+- `getAgent()` is currently synchronous and caches a single `agent` instance
+- Image tool currently imports `OpenAI` statically from the `openai` SDK; PR #17 proposes dynamic import + single-flight init
 
 ### Wave Thread Model
 - Root thread contains `rootBlipId` — blips there are top-level
@@ -115,20 +116,20 @@ DIFF=$(git diff HEAD)
 copilot -p "Review: $DIFF" --model gpt-5.4-mini --effort high --silent 2>&1
 ```
 
-## Open PRs & Status
+## Open PRs & Status (as of April 9, 2026)
 
 | PR | Branch | Status | Description |
 |---|---|---|---|
 | #14 | fix/linkify-source-refs | MERGED | Bare URL linkification + citation hardening |
 | #17 | fix/pr16-review-followup | OPEN/CLEAN | Dynamic import, single-flight agent init, logging |
-| #18 | feat/welcome-blip | OPEN (may have threads) | Welcome blip on WAVELET_SELF_ADDED |
-| #19 | fix/image-insert-null-response | OPEN (new) | Fix null response crash in insertImage |
+| #18 | feat/welcome-blip | OPEN/CLEAN | Welcome blip on WAVELET_SELF_ADDED |
+| #19 | fix/image-insert-null-response | OPEN/BLOCKED | Fix null response crash in insertImage |
 
 ## Known Issues
 
-1. **Image ⚠️ in Wave:** Attachment uploads and IMAGE element insertions succeed (server confirms), but the Wave client shows a warning icon instead of the image. May be a SupaWave rendering bug or a format issue. The base64 PNG data from OpenAI is ~2.8MB. Needs investigation on the SupaWave side.
+1. **Image ⚠️ in Wave:** Attachment uploads and IMAGE element insertions succeed (server confirms), but the Wave client shows a warning icon instead of the image. This may be a SupaWave rendering bug or a format issue. The base64 PNG data from OpenAI is ~2.8MB. This needs investigation on the SupaWave side.
 
-2. **PR #14 changes not on master yet:** The `linkifyBareUrls` function and hardened citation regex from PR #14 were merged. PR #17 (dynamic import + logging) and PR #18 (welcome blip) are still open.
+2. **Open PRs still pending merge (as of April 9, 2026):** PR #14's `linkifyBareUrls` function and hardened citation stripping logic are already on `master`. PR #17 (dynamic import + logging), PR #18 (welcome blip), and PR #19 (null-response fix for `insertImage`) are still open.
 
 ## User Preferences
 
