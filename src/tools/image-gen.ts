@@ -51,15 +51,14 @@ export function createImageGenTool(waveClient: WaveClient) {
       runContext?: RunContext<WaveContext>,
     ) {
       const waveId = runContext?.context.waveId;
-      if (!waveId) {
+      const waveletId = runContext?.context.waveletId;
+      if (!waveId || !waveletId) {
         return 'Error: no wave context available.';
       }
 
-      const waveletId = waveId.replace(/!w\+.*$/, '!conv+root');
-
       try {
         // 1. Generate image via OpenAI
-        console.log(`[image-gen] Generating image: "${args.prompt.slice(0, 80)}..."`);
+        console.log(`[image-gen] Generating image (promptLength=${args.prompt.length})`);
         const openai = getOpenAI();
         const result = await openai.images.generate({
           model: 'gpt-image-1',

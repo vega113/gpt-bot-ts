@@ -108,7 +108,7 @@ describe('WaveClient', () => {
 
   describe('appendBlip', () => {
     it('calls the data API with correct method and auth header', async () => {
-      mockJsonResponse([{ id: 'append-1', data: null }]);
+      mockJsonResponse([{ id: 'append-1', data: { newBlipId: 'b+new' } }]);
       const client = new WaveClient(TOKEN);
       await client.appendBlip(WAVE_ID, 'reply text', WAVELET_ID);
 
@@ -118,6 +118,20 @@ describe('WaveClient', () => {
       expect(opts.headers['Authorization']).toBe('Bearer test-token');
       const body = JSON.parse(opts.body);
       expect(body[0].method).toBe('wavelet.appendBlip');
+    });
+
+    it('returns the newBlipId from the response', async () => {
+      mockJsonResponse([{ id: 'append-1', data: { newBlipId: 'b+new123' } }]);
+      const client = new WaveClient(TOKEN);
+      const result = await client.appendBlip(WAVE_ID, 'text', WAVELET_ID);
+      expect(result).toBe('b+new123');
+    });
+
+    it('returns undefined when response omits newBlipId', async () => {
+      mockJsonResponse([{ id: 'append-1', data: {} }]);
+      const client = new WaveClient(TOKEN);
+      const result = await client.appendBlip(WAVE_ID, 'text', WAVELET_ID);
+      expect(result).toBeUndefined();
     });
 
     it('throws when the API returns an error response', async () => {
@@ -483,6 +497,105 @@ describe('WaveClient', () => {
   });
 
   // ── refreshToken bare-string validation ──────────────────────
+
+  // ── Image / attachment methods ─────────────────────────────────
+
+  describe('importAttachment', () => {
+    it('sends robot.importAttachment with correct payload', async () => {
+      mockJsonResponse([{ id: 'import-att-1', data: {} }]);
+      const client = new WaveClient(TOKEN);
+      await client.importAttachment(
+        WAVE_ID, WAVELET_ID, 'att+img_123', 'photo.png', 'bot@supawave.ai', 'base64data',
+      );
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+      expect(body[0].method).toBe('robot.importAttachment');
+      expect(body[0].params.attachmentId).toBe('att+img_123');
+      expect(body[0].params.attachmentData).toEqual({
+        fileName: 'photo.png',
+        creator: 'bot@supawave.ai',
+        data: 'base64data',
+      });
+    });
+
+    it('throws when API returns an error', async () => {
+      mockJsonResponse([{ id: 'import-att-1', error: { code: 500, message: 'Upload failed' } }]);
+      const client = new WaveClient(TOKEN);
+      await expect(
+        client.importAttachment(WAVE_ID, WAVELET_ID, 'att+1', 'f.png', 'bot', 'data'),
+      ).rejects.toThrow('importAttachment error: Upload failed');
+    });
+  });
+
+  describe('insertImage', () => {
+    it('sends document.modify with INSERT IMAGE element', async () => {
+      mockJsonResponse([{ id: 'insert-img-1', data: {} }]);
+      const client = new WaveClient(TOKEN);
+      await client.insertImage(WAVE_ID, WAVELET_ID, 'b+reply', 'att+img_123', 'A sunset');
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+      expect(body[0].method).toBe('document.modify');
+      expect(body[0].params.blipId).toBe('b+reply');
+      expect(body[0].params.modifyAction.modifyHow).toBe('INSERT');
+      expect(body[0].params.modifyAction.elements).toEqual([{
+        type: 'IMAGE',
+        properties: {
+          attachmentId: 'att+img_123',
+          caption: 'A sunset',
+          'display-size': 'medium',
+        },
+      }]);
+    });
+
+    it('uses custom display size', async () => {
+      mockJsonResponse([{ id: 'insert-img-1', data: {} }]);
+      const client = new WaveClient(TOKEN);
+      await client.insertImage(WAVE_ID, WAVELET_ID, 'b+reply', 'att+1', 'img', 'large');
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+      expect(body[0].params.modifyAction.elements[0].properties['display-size']).toBe('large');
+    });
+
+    it('throws when API returns an error', async () => {
+      mockJsonResponse([{ id: 'insert-img-1', error: { code: 404, message: 'Blip not found' } }]);
+      const client = new WaveClient(TOKEN);
+      await expect(
+        client.insertImage(WAVE_ID, WAVELET_ID, 'b+x', 'att+1', 'img'),
+      ).rejects.toThrow('insertImage error: Blip not found');
+    });
+  });
+
+  describe('replyToBlip newBlipId', () => {
+    it('returns the newBlipId from the response', async () => {
+      mockJsonResponse([{ id: 'reply-1', data: { newBlipId: 'b+reply456' } }]);
+      const client = new WaveClient(TOKEN);
+      const result = await client.replyToBlip(WAVE_ID, 'parent', 'text', WAVELET_ID);
+      expect(result).toBe('b+reply456');
+    });
+
+    it('returns undefined when response omits newBlipId', async () => {
+      mockJsonResponse([{ id: 'reply-1', data: {} }]);
+      const client = new WaveClient(TOKEN);
+      const result = await client.replyToBlip(WAVE_ID, 'parent', 'text', WAVELET_ID);
+      expect(result).toBeUndefined();
+    });
+  });
+
+  describe('continueThread newBlipId', () => {
+    it('returns the newBlipId from the response', async () => {
+      mockJsonResponse([{ id: 'continue-1', data: { newBlipId: 'b+cont789' } }]);
+      const client = new WaveClient(TOKEN);
+      const result = await client.continueThread(WAVE_ID, 'sibling', 'text', WAVELET_ID);
+      expect(result).toBe('b+cont789');
+    });
+
+    it('returns undefined when response omits newBlipId', async () => {
+      mockJsonResponse([{ id: 'continue-1', data: {} }]);
+      const client = new WaveClient(TOKEN);
+      const result = await client.continueThread(WAVE_ID, 'sibling', 'text', WAVELET_ID);
+      expect(result).toBeUndefined();
+    });
+  });
 
   describe('refreshToken bare-string validation', () => {
     it('rejects a non-JWT bare string (e.g. HTML)', async () => {

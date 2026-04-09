@@ -277,13 +277,13 @@ export class WaveClient {
     return response.data as FetchWaveResult;
   }
 
-  /** Append a new blip to the root thread. Returns the new blip ID. */
+  /** Append a new blip to the root thread. Returns the new blip ID (undefined if server omitted it). */
   async appendBlip(
     waveId: string,
     content: string,
     waveletId?: string,
     annotations?: WaveAnnotation[],
-  ): Promise<string> {
+  ): Promise<string | undefined> {
     const [response] = await this.rpc([
       {
         id: 'append-1',
@@ -299,17 +299,19 @@ export class WaveClient {
     if (response.error) {
       throw new Error(`appendBlip error: ${response.error.message}`);
     }
-    return (response.data as { newBlipId?: string })?.newBlipId ?? '';
+    const newBlipId = (response.data as { newBlipId?: string })?.newBlipId;
+    if (!newBlipId) console.warn('[wave-client] appendBlip response missing newBlipId');
+    return newBlipId;
   }
 
-  /** Create a reply thread under a specific blip. Returns the new blip ID. */
+  /** Create a reply thread under a specific blip. Returns the new blip ID (undefined if server omitted it). */
   async replyToBlip(
     waveId: string,
     parentBlipId: string,
     content: string,
     waveletId?: string,
     annotations?: WaveAnnotation[],
-  ): Promise<string> {
+  ): Promise<string | undefined> {
     const [response] = await this.rpc([
       {
         id: 'reply-1',
@@ -326,17 +328,19 @@ export class WaveClient {
     if (response.error) {
       throw new Error(`replyToBlip error: ${response.error.message}`);
     }
-    return (response.data as { newBlipId?: string })?.newBlipId ?? '';
+    const newBlipId = (response.data as { newBlipId?: string })?.newBlipId;
+    if (!newBlipId) console.warn('[wave-client] replyToBlip response missing newBlipId');
+    return newBlipId;
   }
 
-  /** Continue an existing thread (add a sibling blip). Returns the new blip ID. */
+  /** Continue an existing thread (add a sibling blip). Returns the new blip ID (undefined if server omitted it). */
   async continueThread(
     waveId: string,
     siblingBlipId: string,
     content: string,
     waveletId?: string,
     annotations?: WaveAnnotation[],
-  ): Promise<string> {
+  ): Promise<string | undefined> {
     const [response] = await this.rpc([
       {
         id: 'continue-1',
@@ -353,7 +357,9 @@ export class WaveClient {
     if (response.error) {
       throw new Error(`continueThread error: ${response.error.message}`);
     }
-    return (response.data as { newBlipId?: string })?.newBlipId ?? '';
+    const newBlipId = (response.data as { newBlipId?: string })?.newBlipId;
+    if (!newBlipId) console.warn('[wave-client] continueThread response missing newBlipId');
+    return newBlipId;
   }
 
   /**

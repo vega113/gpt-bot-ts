@@ -261,7 +261,7 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
   // the filter below is a defense-in-depth guard in case other annotation sources
   // are added in future.
   const SAFE_LINK_RE = /^https?:\/\/|^mailto:/i;
-  const postReply = async (markdown: string): Promise<string> => {
+  const postReply = async (markdown: string): Promise<string | undefined> => {
     const { content, annotations } = markdownToWave(markdown);
     const safeAnnotations = annotations.filter(
       (a) => a.name !== 'link/manual' || SAFE_LINK_RE.test(a.value),
@@ -288,6 +288,7 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
   try {
     const { decision, pendingImages } = await processMessage({
       waveId,
+      waveletId,
       userMessage,
       author,
       waveClient,
