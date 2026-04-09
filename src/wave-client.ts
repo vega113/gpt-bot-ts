@@ -391,7 +391,11 @@ export class WaveClient {
       },
     ]);
 
-    if (response?.error) {
+    if (response == null) {
+      throw new Error('importAttachment error: missing response');
+    }
+
+    if (response.error) {
       throw new Error(`importAttachment error: ${response.error.message}`);
     }
   }
