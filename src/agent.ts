@@ -217,7 +217,10 @@ export async function processMessage({
       // so the bot never posts a blank reply.
       decision.response = sanitized || 'I had trouble generating a response. Please try again.';
     }
-    return { decision, pendingImages: context.pendingImages ?? [] };
+    // Only forward pending images when the bot will actually post a reply.
+    // Discarding them when shouldReply=false avoids orphaned uploads.
+    const images = decision.shouldReply ? (context.pendingImages ?? []) : [];
+    return { decision, pendingImages: images };
   }
 
   // Fallback: if the agent didn't produce structured output, reply anyway

@@ -1,9 +1,10 @@
 /**
- * Custom tool: generate an image using OpenAI's image generation API
- * and upload it to the current wave as an attachment.
+ * Custom tool: generate an image using OpenAI's image generation API.
  *
- * The tool returns the attachmentId so the calling code can insert
- * the image into a blip via document.modify after the reply is posted.
+ * The generated image (base64) is queued in RunContext.pendingImages.
+ * The actual upload (importAttachment) and insertion (document.modify)
+ * are deferred to index.ts — they run only after the reply blip is
+ * successfully created, avoiding orphaned attachments on failure.
  */
 
 import { tool } from '@openai/agents';
@@ -31,10 +32,10 @@ export function createImageGenTool(waveClient: WaveClient) {
   return tool({
     name: 'generate_image',
     description:
-      'Generate an image from a text prompt using AI and insert it into the current wave. ' +
+      'Generate an image from a text prompt using AI. ' +
       'Use this when a user asks you to create, generate, draw, or visualize an image. ' +
-      'The image will appear in the wave as an inline attachment. ' +
-      'Returns a confirmation message with the attachment ID.',
+      'The image will be automatically inserted into the reply blip after it is posted. ' +
+      'Returns a confirmation message.',
     parameters: z.object({
       prompt: z.string().describe('Detailed description of the image to generate'),
       size: z
