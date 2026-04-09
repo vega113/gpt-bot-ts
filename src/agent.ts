@@ -116,30 +116,39 @@ When a message contains a \`<wave-context>\` block, the user created an **inline
 - You may still use web search or read_wave for additional details, but anchor your answer to the contextual blip`;
 
 let agent: Agent<WaveContext, typeof BotDecision> | null = null;
+/** Single-flight guard: concurrent callers await the same init promise. */
+let agentInitPromise: Promise<Agent<WaveContext, typeof BotDecision>> | null = null;
 
 /** Lazily initialize the agent (needs WaveClient for tools). */
 async function getAgent(waveClient: WaveClient): Promise<Agent<WaveContext, typeof BotDecision>> {
   if (agent) return agent;
+  if (agentInitPromise) return agentInitPromise;
 
-  // Core tools are always available; image gen is optional.
-  // Dynamic import isolates the openai dependency — if it fails to load
-  // (missing package, bad version, etc.) the bot still works for text.
-  const tools = [webSearch, createWaveReadTool(waveClient)];
-  try {
-    const { createImageGenTool } = await import('./tools/image-gen.js');
-    tools.push(createImageGenTool());
-  } catch (err) {
-    console.error('[agent] Failed to load generate_image tool, continuing without it:', err);
-  }
+  agentInitPromise = (async () => {
+    // Core tools are always available; image gen is optional.
+    // Dynamic import isolates the openai dependency — if it fails to load
+    // (missing package, bad version, etc.) the bot still works for text.
+    const tools = [webSearch, createWaveReadTool(waveClient)];
+    try {
+      const { createImageGenTool } = await import('./tools/image-gen.js');
+      tools.push(createImageGenTool());
+    } catch (err) {
+      console.error('[agent] Failed to load generate_image tool, continuing without it:', err);
+    }
 
-  agent = new Agent<WaveContext, typeof BotDecision>({
-    name: BOT_NAME,
-    instructions: SYSTEM_PROMPT,
-    tools,
-    outputType: BotDecision,
+    agent = new Agent<WaveContext, typeof BotDecision>({
+      name: BOT_NAME,
+      instructions: SYSTEM_PROMPT,
+      tools,
+      outputType: BotDecision,
+    });
+
+    return agent;
+  })().finally(() => {
+    agentInitPromise = null;
   });
 
-  return agent;
+  return agentInitPromise;
 }
 
 export interface ProcessMessageOptions {
