@@ -66,20 +66,22 @@ export function createReplyDelivery(
     postPlaceholder: post,
     deletePlaceholder: deletePosted,
     async completePlaceholder(posted: PostedReply, markdown: string): Promise<PostedReply> {
+      const finalReply = await post(markdown);
       try {
         await deletePosted(posted);
       } catch (err) {
         console.warn('[reply-delivery] failed to delete placeholder before final reply', err);
       }
-      return await post(markdown);
+      return finalReply;
     },
     async failPlaceholder(posted: PostedReply, markdown: string): Promise<PostedReply> {
+      const errorReply = await post(markdown);
       try {
         await deletePosted(posted);
       } catch (err) {
         console.warn('[reply-delivery] failed to delete placeholder before error reply', err);
       }
-      return await post(markdown);
+      return errorReply;
     },
   };
 }

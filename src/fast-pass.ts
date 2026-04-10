@@ -108,10 +108,23 @@ export async function decideWithTimeout<TInput>(
   input: TInput,
   timeoutMs = parseInt(process.env['FAST_PASS_TIMEOUT_MS'] ?? '2500', 10),
 ): Promise<FastPassDecision | null> {
-  return await Promise.race([
-    client.decide(input),
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
-  ]);
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    const timeout = new Promise<null>((resolve) => {
+      timeoutId = setTimeout(() => resolve(null), timeoutMs);
+    });
+
+    return await Promise.race([
+      client.decide(input).then((decision) => {
+        if (timeoutId) clearTimeout(timeoutId);
+        return decision;
+      }),
+      timeout,
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
 }
 
 export class OpenAIFastPassClient implements FastPassClient {

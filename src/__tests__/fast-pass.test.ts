@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   buildAckMessage,
   decideWithTimeout,
@@ -79,11 +79,24 @@ describe('normalizeFastPassDecision', () => {
 });
 
 describe('decideWithTimeout', () => {
+  it('clears the timeout when fast pass resolves first', async () => {
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
+    const client: FastPassClient<{ prompt: string }> = {
+      decide: vi.fn().mockResolvedValue(baseDecision),
+    };
+
+    await expect(decideWithTimeout(client, { prompt: 'hello' }, 1000)).resolves.toEqual(
+      baseDecision,
+    );
+    expect(clearTimeoutSpy).toHaveBeenCalled();
+    clearTimeoutSpy.mockRestore();
+  });
+
   it('returns null when fast pass exceeds timeout', async () => {
-    const slowClient: FastPassClient = {
+    const slowClient: FastPassClient<{ prompt: string }> = {
       decide: () => new Promise(() => {}),
     };
 
-    await expect(decideWithTimeout(slowClient, 'hello', 5)).resolves.toBeNull();
+    await expect(decideWithTimeout(slowClient, { prompt: 'hello' }, 5)).resolves.toBeNull();
   });
 });

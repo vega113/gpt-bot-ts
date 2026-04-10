@@ -32,6 +32,7 @@ import {
   findParentBlipContext,
 } from './helpers.js';
 import type { BlipData, EventMessageBundle } from './helpers.js';
+import { markdownToWave } from './markdown-to-wave.js';
 import { decodeTokenExpiry, checkTokenExpiry } from './token-utils.js';
 import { createReplyDelivery } from './reply-delivery.js';
 import { handleReplyFlow } from './reply-flow.js';
@@ -208,7 +209,6 @@ function handleSelfAdded(bundle: EventMessageBundle): void {
   if (!hasSelfAdded) return;
 
   const { waveId, waveletId } = bundle.wavelet;
-
   // Deduplicate: skip if we already welcomed this wavelet (handles redeliveries).
   const waveletKey = `${waveId}/${waveletId}`;
   if (welcomedWavelets.has(waveletKey)) return;
