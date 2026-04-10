@@ -17,7 +17,13 @@
 import express from 'express';
 import { WaveClient } from './wave-client.js';
 import { processMessage } from './agent.js';
-import { clearSession, sessionCount } from './context.js';
+import {
+  clearSession,
+  getReplyPreference,
+  getSession,
+  sessionCount,
+  setReplyPreference,
+} from './context.js';
 import {
   mentionsBot,
   isValidBundle,
@@ -28,6 +34,9 @@ import {
 import type { BlipData, EventMessageBundle } from './helpers.js';
 import { markdownToWave } from './markdown-to-wave.js';
 import { decodeTokenExpiry, checkTokenExpiry } from './token-utils.js';
+import { createReplyDelivery } from './reply-delivery.js';
+import { handleReplyFlow } from './reply-flow.js';
+import { OpenAIFastPassClient } from './fast-pass.js';
 
 // ── config ───────────────────────────────────────────────────
 
@@ -35,6 +44,14 @@ const PORT = parseInt(process.env['PORT'] ?? '8089', 10);
 const SUPAWAVE_TOKEN = process.env['SUPAWAVE_TOKEN'] ?? '';
 const SUPAWAVE_SECRET = process.env['SUPAWAVE_SECRET'] ?? '';
 const ROBOT_ADDRESS = process.env['ROBOT_ADDRESS'] ?? 'gpt-ts-bot@supawave.ai';
+
+function parseTimeoutMs(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? '', 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+const FAST_PASS_TIMEOUT_MS = parseTimeoutMs(process.env['FAST_PASS_TIMEOUT_MS'], 2500);
+const FULL_PASS_TIMEOUT_MS = parseTimeoutMs(process.env['FULL_PASS_TIMEOUT_MS'], 90000);
 
 if (!SUPAWAVE_TOKEN) {
   console.error('SUPAWAVE_TOKEN environment variable is required');
@@ -55,6 +72,7 @@ const waveClient = new WaveClient({
   robotAddress: ROBOT_ADDRESS,
   secret: SUPAWAVE_SECRET || undefined,
 });
+const fastPassClient = process.env['FAST_PASS_ENABLED'] === '0' ? null : new OpenAIFastPassClient();
 
 // ── capabilities ─────────────────────────────────────────────
 
@@ -197,7 +215,6 @@ function handleSelfAdded(bundle: EventMessageBundle): void {
   if (!hasSelfAdded) return;
 
   const { waveId, waveletId } = bundle.wavelet;
-
   // Deduplicate: skip if we already welcomed this wavelet (handles redeliveries).
   const waveletKey = `${waveId}/${waveletId}`;
   if (welcomedWavelets.has(waveletKey)) return;
@@ -322,25 +339,12 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
   // Skip new work if shutting down
   if (shutdownRequested) return;
 
-  // Post reply contextually:
-  // - If user's blip is in a thread → continue that thread
-  // - Otherwise → reply to the user's blip (creates a child thread)
-  // Markdown is converted to Wave annotations so formatting renders correctly.
-  // markdownToWave() already enforces safe schemes (http/https/mailto) internally;
-  // the filter below is a defense-in-depth guard in case other annotation sources
-  // are added in future.
-  const SAFE_LINK_RE = /^https?:\/\/|^mailto:/i;
-  const postReply = async (markdown: string): Promise<string | undefined> => {
-    const { content, annotations } = markdownToWave(markdown);
-    const safeAnnotations = annotations.filter(
-      (a) => a.name !== 'link/manual' || SAFE_LINK_RE.test(a.value),
-    );
-    if (isInThread) {
-      return waveClient.continueThread(waveId, blip.blipId, content, waveletId, safeAnnotations);
-    } else {
-      return waveClient.replyToBlip(waveId, blip.blipId, content, waveletId, safeAnnotations);
-    }
-  };
+  const delivery = createReplyDelivery(waveClient, {
+    waveId,
+    waveletId,
+    parentBlipId: blip.blipId,
+    isInThread,
+  });
 
   // For inline-thread blips, find the parent blip content for context
   let parentContext: string | undefined;
@@ -355,47 +359,73 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
   activeJobs++;
   // Process asynchronously and post reply via data API
   try {
-    const { decision, pendingImages } = await processMessage({
-      waveId,
-      waveletId,
-      userMessage,
-      author,
-      waveClient,
-      parentContext,
+    const result = await handleReplyFlow({
+      replyPreference: getReplyPreference(waveId),
+      payload: {
+        waveId,
+        waveletId,
+        parentBlipId: blip.blipId,
+        isInThread,
+        isExplicitMention: mentionsBot(blip.content, ROBOT_ADDRESS),
+        userMessage,
+        author,
+        botAddress: ROBOT_ADDRESS,
+        parentContext,
+        participantCount: bundle.wavelet.participants.length,
+      },
+      fastPass: fastPassClient,
+      fastPassTimeoutMs: FAST_PASS_TIMEOUT_MS,
+      fullPassTimeoutMs: FULL_PASS_TIMEOUT_MS,
+      fullPass: () => processMessage({
+        waveId,
+        waveletId,
+        userMessage,
+        author,
+        waveClient,
+        parentContext,
+      }),
+      delivery,
+      onReplyPreference: (state) => setReplyPreference(waveId, state),
+      onFastReply: async (assistantMessage) => {
+        try {
+          const session = getSession(waveId);
+          await session.addItems([
+            { role: 'user', content: `[${author}]: ${userMessage}` },
+            {
+              role: 'assistant',
+              status: 'completed',
+              content: [{ type: 'output_text', text: assistantMessage }],
+            },
+          ]);
+        } catch (sessionErr) {
+          console.warn('[flow] failed to record fast reply in session', sessionErr);
+        }
+      },
+      onImages: async (replyBlipId, pendingImages) => {
+        if (!replyBlipId || pendingImages.length === 0) return;
+        for (const img of pendingImages) {
+          try {
+            await waveClient.importAttachment(
+              waveId, waveletId, img.attachmentId, img.fileName, ROBOT_ADDRESS, img.base64Data,
+            );
+            await waveClient.insertImage(waveId, waveletId, replyBlipId, img.attachmentId, img.caption);
+            console.log(`[image] wave=${waveId} uploaded+inserted ${img.attachmentId} into blip=${replyBlipId}`);
+          } catch (imgErr) {
+            console.error(`[image-error] wave=${waveId} failed to upload/insert ${img.attachmentId}`, imgErr);
+          }
+        }
+      },
     });
 
-    if (!decision.shouldReply) {
-      console.log(`[skipped] wave=${waveId} bot chose not to reply`);
-      respondedContent.delete(blip.blipId); // allow retry
-      return;
-    }
-
-    // Guard: shouldReply=true with null response is a malformed model output
-    const replyText = decision.response ?? 'I had trouble generating a response. Please try again.';
-    const newBlipId = await postReply(replyText);
-    console.log(`[replied] wave=${waveId} length=${replyText.length} blipId=${newBlipId}`);
-
-    // Upload and insert any images generated during the agent run.
-    // Both importAttachment and insertImage are deferred until the reply
-    // blip exists — this avoids orphaned attachments if the reply fails.
-    if (pendingImages.length > 0 && newBlipId) {
-      for (const img of pendingImages) {
-        try {
-          await waveClient.importAttachment(
-            waveId, waveletId, img.attachmentId, img.fileName, ROBOT_ADDRESS, img.base64Data,
-          );
-          await waveClient.insertImage(waveId, waveletId, newBlipId, img.attachmentId, img.caption);
-          console.log(`[image] wave=${waveId} uploaded+inserted ${img.attachmentId} into blip=${newBlipId}`);
-        } catch (imgErr) {
-          console.error(`[image-error] wave=${waveId} failed to upload/insert ${img.attachmentId}`, imgErr);
-        }
-      }
+    console.log(`[flow] wave=${waveId} outcome=${result.outcome}`);
+    if (result.outcome === 'error') {
+      respondedContent.delete(blip.blipId);
     }
   } catch (err) {
     console.error(`[error] wave=${waveId}`, err);
     respondedContent.delete(blip.blipId);
     try {
-      await postReply(
+      await delivery.postReply(
         'Sorry, I encountered an error processing your message. Please try again.',
       );
     } catch (replyErr) {

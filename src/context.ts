@@ -12,8 +12,10 @@ import {
   OpenAIResponsesCompactionSession,
 } from '@openai/agents';
 import type { Session } from '@openai/agents';
+import type { ReplyPreferenceState } from './reply-preferences.js';
 
 const sessions = new Map<string, Session>();
+const replyPreferences = new Map<string, ReplyPreferenceState>();
 
 /** Compaction triggers when history exceeds this many items. */
 const COMPACTION_THRESHOLD = 20;
@@ -39,9 +41,18 @@ export function getSession(waveId: string): Session {
 /** Remove a session (e.g. when bot is removed from wave). */
 export function clearSession(waveId: string): void {
   sessions.delete(waveId);
+  replyPreferences.delete(waveId);
 }
 
 /** Number of active sessions (for diagnostics). */
 export function sessionCount(): number {
   return sessions.size;
+}
+
+export function getReplyPreference(waveId: string): ReplyPreferenceState {
+  return replyPreferences.get(waveId) ?? { mode: 'normal' };
+}
+
+export function setReplyPreference(waveId: string, replyPreference: ReplyPreferenceState): void {
+  replyPreferences.set(waveId, replyPreference);
 }

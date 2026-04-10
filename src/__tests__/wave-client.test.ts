@@ -153,6 +153,22 @@ describe('WaveClient', () => {
     });
   });
 
+  describe('deleteBlip', () => {
+    it('throws when the API response is missing', async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => '[]',
+        json: async () => [],
+      });
+      const client = new WaveClient(TOKEN);
+
+      await expect(client.deleteBlip(WAVE_ID, WAVELET_ID, 'b+placeholder')).rejects.toThrow(
+        'deleteBlip error: missing response',
+      );
+    });
+  });
+
   describe('replyToBlip', () => {
     it('calls blip.createChild with the correct blipId', async () => {
       mockJsonResponse([{ id: 'reply-1', data: null }]);
@@ -618,6 +634,31 @@ describe('WaveClient', () => {
       const client = new WaveClient(TOKEN);
       const result = await client.continueThread(WAVE_ID, 'sibling', 'text', WAVELET_ID);
       expect(result).toBeUndefined();
+    });
+  });
+
+  describe('deleteBlip', () => {
+    it('calls blip.delete with the requested blip id', async () => {
+      mockJsonResponse([{ id: 'delete-1', data: {} }]);
+      const client = new WaveClient(TOKEN);
+      await client.deleteBlip(WAVE_ID, WAVELET_ID, 'b+placeholder');
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+      expect(body[0].method).toBe('blip.delete');
+      expect(body[0].params).toEqual({
+        waveId: WAVE_ID,
+        waveletId: WAVELET_ID,
+        blipId: 'b+placeholder',
+      });
+    });
+
+    it('throws when blip.delete returns an error', async () => {
+      mockJsonResponse([{ id: 'delete-1', error: { code: 403, message: 'Forbidden' } }]);
+      const client = new WaveClient(TOKEN);
+
+      await expect(
+        client.deleteBlip(WAVE_ID, WAVELET_ID, 'b+placeholder'),
+      ).rejects.toThrow('deleteBlip error: Forbidden');
     });
   });
 

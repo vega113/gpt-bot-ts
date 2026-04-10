@@ -10,7 +10,7 @@ vi.mock('@openai/agents', () => ({
   },
 }));
 
-import { getSession, clearSession, sessionCount } from '../context.js';
+import { getSession, clearSession, sessionCount, getReplyPreference, setReplyPreference } from '../context.js';
 
 describe('context', () => {
   beforeEach(() => {
@@ -70,6 +70,27 @@ describe('context', () => {
       getSession('wave-b');
       clearSession('wave-a');
       expect(sessionCount()).toBe(1);
+    });
+  });
+
+  describe('reply preferences', () => {
+    it('defaults to normal when no preference is stored', () => {
+      expect(getReplyPreference('wave-a')).toEqual({ mode: 'normal' });
+    });
+
+    it('stores and retrieves a wave-level reply preference', () => {
+      setReplyPreference('wave-a', { mode: 'only_when_mentioned', updatedBy: 'alice', updatedAt: 123 });
+      expect(getReplyPreference('wave-a')).toEqual({
+        mode: 'only_when_mentioned',
+        updatedBy: 'alice',
+        updatedAt: 123,
+      });
+    });
+
+    it('clears the reply preference with the session', () => {
+      setReplyPreference('wave-a', { mode: 'only_when_mentioned' });
+      clearSession('wave-a');
+      expect(getReplyPreference('wave-a')).toEqual({ mode: 'normal' });
     });
   });
 });

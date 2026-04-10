@@ -362,6 +362,33 @@ export class WaveClient {
     return newBlipId;
   }
 
+  /** Delete an existing blip. */
+  async deleteBlip(
+    waveId: string,
+    waveletId: string,
+    blipId: string,
+  ): Promise<void> {
+    const [response] = await this.rpc([
+      {
+        id: 'delete-1',
+        method: 'blip.delete',
+        params: {
+          waveId,
+          waveletId,
+          blipId,
+        },
+      },
+    ]);
+
+    if (response === undefined) {
+      throw new Error('deleteBlip error: missing response');
+    }
+
+    if (response?.error) {
+      throw new Error(`deleteBlip error: ${response.error.message}`);
+    }
+  }
+
   /**
    * Upload attachment data (e.g. an image) to a wavelet.
    * The attachmentId is client-generated and later referenced by insertImage().
