@@ -40,8 +40,8 @@ describe('detectReplyPreferenceUpdate', () => {
 
   it('switches back to normal for resume commands', () => {
     expect(
-      detectReplyPreferenceUpdate('Okay, you can reply normally again.', {
-        isExplicitMention: false,
+      detectReplyPreferenceUpdate('@gpt-ts-bot okay, you can reply normally again.', {
+        isExplicitMention: true,
         author: 'alice@example.com',
         now: 789,
       }),
@@ -49,6 +49,30 @@ describe('detectReplyPreferenceUpdate', () => {
       mode: 'normal',
       updatedBy: 'alice@example.com',
       updatedAt: 789,
+    });
+  });
+
+  it('does not resume quiet mode from unrelated chatter', () => {
+    expect(
+      detectReplyPreferenceUpdate('you can reply normally again', {
+        isExplicitMention: false,
+        author: 'alice@example.com',
+        now: 1011,
+      }),
+    ).toBeNull();
+  });
+
+  it('switches to only_when_mentioned for direct stop-reply commands', () => {
+    expect(
+      detectReplyPreferenceUpdate('@gpt-ts-bot stop replying', {
+        isExplicitMention: true,
+        author: 'alice@example.com',
+        now: 1213,
+      }),
+    ).toEqual({
+      mode: 'only_when_mentioned',
+      updatedBy: 'alice@example.com',
+      updatedAt: 1213,
     });
   });
 

@@ -102,7 +102,7 @@ async function postDirectFullPassReply(
     if (!full.decision.shouldReply) {
       return { outcome: 'ignored' };
     }
-    const replyText = full.decision.response ?? FULL_PASS_FALLBACK_REPLY;
+    const replyText = cleanVisibleModelText(full.decision.response);
     const posted = await deps.delivery.postReply(replyText);
     await deps.onImages(posted.blipId, full.pendingImages);
     return { outcome: 'full_answer_no_fast_pass' };
@@ -176,7 +176,7 @@ export async function handleReplyFlow(
       return { outcome: 'ignored_after_ack' };
     }
 
-    const finalReply = full.decision.response ?? FULL_PASS_FALLBACK_REPLY;
+    const finalReply = cleanVisibleModelText(full.decision.response);
     const posted = await deps.delivery.completePlaceholder(placeholder, finalReply);
     await deps.onImages(posted.blipId, full.pendingImages);
     return { outcome: 'full_answer' };

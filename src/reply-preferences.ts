@@ -21,8 +21,13 @@ const QUIET_ANYWHERE_PATTERNS = [
 
 const QUIET_DIRECTED_PATTERNS = [
   /\bstop responding\b/i,
+  /\bstop replying\b/i,
   /\bbe quiet\b/i,
   /\bshut up\b/i,
+  /\bdon'?t reply\b/i,
+  /\bdon'?t respond\b/i,
+  /\bdo not reply\b/i,
+  /\bdo not respond\b/i,
 ];
 
 const RESUME_PATTERNS = [
@@ -41,15 +46,16 @@ export function detectReplyPreferenceUpdate(
   const normalized = text.trim();
   if (!normalized) return null;
 
-  if (RESUME_PATTERNS.some((pattern) => pattern.test(normalized))) {
-    return { mode: 'normal', updatedBy: author, updatedAt: now };
-  }
-
   const isDirected =
     isExplicitMention ||
     /^(?:\s*(?:you|bot)\b(?:[,!:]\s*|\s+))(?:please\s+)?(?:stop\s+responding|stop\s+replying|be\s+quiet|shut\s+up|don't\s+reply|don't\s+respond|do\s+not\s+reply|do\s+not\s+respond)\b/i.test(
       normalized,
     );
+
+  if (isDirected && RESUME_PATTERNS.some((pattern) => pattern.test(normalized))) {
+    return { mode: 'normal', updatedBy: author, updatedAt: now };
+  }
+
   const isQuietCommand =
     QUIET_ANYWHERE_PATTERNS.some((pattern) => pattern.test(normalized)) ||
     (isDirected && QUIET_DIRECTED_PATTERNS.some((pattern) => pattern.test(normalized)));

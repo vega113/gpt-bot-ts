@@ -418,7 +418,7 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
     });
 
     console.log(`[flow] wave=${waveId} outcome=${result.outcome}`);
-    if (result.outcome === 'ignored' || result.outcome === 'ignored_after_ack' || result.outcome === 'error') {
+    if (result.outcome === 'error') {
       respondedContent.delete(blip.blipId);
     }
   } catch (err) {

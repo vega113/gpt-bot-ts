@@ -156,6 +156,40 @@ describe('handleReplyFlow', () => {
     expect(deps.onImages).toHaveBeenCalledWith('b+final', []);
   });
 
+  it('falls back to the default reply when the full agent returns blank text without fast pass', async () => {
+    const deps = makeDeps({
+      fastPass: null,
+      fullPass: vi.fn().mockResolvedValue({
+        decision: { shouldReply: true, response: '   ' },
+        pendingImages: [],
+      }),
+    });
+
+    const result = await handleReplyFlow(deps);
+
+    expect(result.outcome).toBe('full_answer_no_fast_pass');
+    expect(deps.delivery.postReply).toHaveBeenCalledWith(
+      'I had trouble generating a response. Please try again.',
+    );
+  });
+
+  it('falls back to the default reply when the full agent returns blank text after ack', async () => {
+    const deps = makeDeps({
+      fullPass: vi.fn().mockResolvedValue({
+        decision: { shouldReply: true, response: '   ' },
+        pendingImages: [],
+      }),
+    });
+
+    const result = await handleReplyFlow(deps);
+
+    expect(result.outcome).toBe('full_answer');
+    expect(deps.delivery.completePlaceholder).toHaveBeenCalledWith(
+      { blipId: 'b+placeholder', content: 'Working on this.' },
+      'I had trouble generating a response. Please try again.',
+    );
+  });
+
   it('deletes the placeholder when the full agent chooses not to reply after ack', async () => {
     const deps = makeDeps({
       fullPass: vi.fn().mockResolvedValue({
