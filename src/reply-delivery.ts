@@ -70,7 +70,7 @@ export function createReplyDelivery(
       try {
         await deletePosted(posted);
       } catch (err) {
-        console.warn('[reply-delivery] failed to delete placeholder before final reply', err);
+        console.warn('[reply-delivery] failed to delete placeholder after final reply', err);
       }
       return finalReply;
     },
@@ -79,7 +79,7 @@ export function createReplyDelivery(
       try {
         await deletePosted(posted);
       } catch (err) {
-        console.warn('[reply-delivery] failed to delete placeholder before error reply', err);
+        console.warn('[reply-delivery] failed to delete placeholder after error reply', err);
       }
       return errorReply;
     },

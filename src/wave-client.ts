@@ -380,6 +380,10 @@ export class WaveClient {
       },
     ]);
 
+    if (response === undefined) {
+      throw new Error('deleteBlip error: missing response');
+    }
+
     if (response?.error) {
       throw new Error(`deleteBlip error: ${response.error.message}`);
     }

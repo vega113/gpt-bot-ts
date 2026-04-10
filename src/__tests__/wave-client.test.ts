@@ -153,6 +153,22 @@ describe('WaveClient', () => {
     });
   });
 
+  describe('deleteBlip', () => {
+    it('throws when the API response is missing', async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => '[]',
+        json: async () => [],
+      });
+      const client = new WaveClient(TOKEN);
+
+      await expect(client.deleteBlip(WAVE_ID, WAVELET_ID, 'b+placeholder')).rejects.toThrow(
+        'deleteBlip error: missing response',
+      );
+    });
+  });
+
   describe('replyToBlip', () => {
     it('calls blip.createChild with the correct blipId', async () => {
       mockJsonResponse([{ id: 'reply-1', data: null }]);

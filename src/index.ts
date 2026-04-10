@@ -44,8 +44,14 @@ const PORT = parseInt(process.env['PORT'] ?? '8089', 10);
 const SUPAWAVE_TOKEN = process.env['SUPAWAVE_TOKEN'] ?? '';
 const SUPAWAVE_SECRET = process.env['SUPAWAVE_SECRET'] ?? '';
 const ROBOT_ADDRESS = process.env['ROBOT_ADDRESS'] ?? 'gpt-ts-bot@supawave.ai';
-const FAST_PASS_TIMEOUT_MS = parseInt(process.env['FAST_PASS_TIMEOUT_MS'] ?? '2500', 10);
-const FULL_PASS_TIMEOUT_MS = parseInt(process.env['FULL_PASS_TIMEOUT_MS'] ?? '90000', 10);
+
+function parseTimeoutMs(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? '', 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+const FAST_PASS_TIMEOUT_MS = parseTimeoutMs(process.env['FAST_PASS_TIMEOUT_MS'], 2500);
+const FULL_PASS_TIMEOUT_MS = parseTimeoutMs(process.env['FULL_PASS_TIMEOUT_MS'], 90000);
 
 if (!SUPAWAVE_TOKEN) {
   console.error('SUPAWAVE_TOKEN environment variable is required');

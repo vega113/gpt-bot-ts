@@ -75,12 +75,23 @@ function cleanVisibleModelText(text: string | null | undefined): string {
 async function runFullPass(deps: ReplyFlowDeps): Promise<ProcessResult> {
   if (!deps.fullPassTimeoutMs) return await deps.fullPass();
 
-  return await Promise.race([
-    deps.fullPass(),
-    new Promise<ProcessResult>((_, reject) => {
-      setTimeout(() => reject(new Error('Full pass timed out')), deps.fullPassTimeoutMs);
-    }),
-  ]);
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    return await Promise.race([
+      deps.fullPass(),
+      new Promise<ProcessResult>((_, reject) => {
+        timeoutId = setTimeout(
+          () => reject(new Error('Full pass timed out')),
+          deps.fullPassTimeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+  }
 }
 
 async function postDirectFullPassReply(
@@ -137,6 +148,9 @@ export async function handleReplyFlow(
   const fast = normalizeFastPassDecision(fastPassDecision, deps.payload.userMessage);
 
   if (fast.action === 'ignore') {
+    if (deps.payload.isExplicitMention) {
+      return await postDirectFullPassReply(deps);
+    }
     return { outcome: 'ignored' };
   }
 
@@ -154,7 +168,11 @@ export async function handleReplyFlow(
   try {
     const full = await runFullPass(deps);
     if (!full.decision.shouldReply) {
-      await deps.delivery.deletePlaceholder(placeholder);
+      try {
+        await deps.delivery.deletePlaceholder(placeholder);
+      } catch (error) {
+        console.warn('Failed to delete reply placeholder after silent full-pass decision.', error);
+      }
       return { outcome: 'ignored_after_ack' };
     }
 

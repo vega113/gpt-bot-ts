@@ -174,6 +174,29 @@ describe('handleReplyFlow', () => {
     expect(deps.delivery.completePlaceholder).not.toHaveBeenCalled();
   });
 
+  it('keeps the ignored-after-ack outcome when placeholder deletion fails', async () => {
+    const deps = makeDeps({
+      fullPass: vi.fn().mockResolvedValue({
+        decision: { shouldReply: false, response: null },
+        pendingImages: [],
+      }),
+      delivery: {
+        postReply: vi.fn().mockResolvedValue({ blipId: 'b+final', content: 'Final answer' }),
+        postPlaceholder: vi.fn().mockResolvedValue({ blipId: 'b+placeholder', content: 'Working on this.' }),
+        deletePlaceholder: vi.fn().mockRejectedValue(new Error('delete failed')), 
+        completePlaceholder: vi.fn(),
+        failPlaceholder: vi.fn(),
+      },
+    });
+
+    const result = await handleReplyFlow(deps);
+
+    expect(result.outcome).toBe('ignored_after_ack');
+    expect(deps.delivery.deletePlaceholder).toHaveBeenCalledOnce();
+    expect(deps.delivery.failPlaceholder).not.toHaveBeenCalled();
+    expect(deps.delivery.postReply).not.toHaveBeenCalled();
+  });
+
   it('falls back to direct full-pass reply when fast pass times out', async () => {
     const deps = makeDeps({
       fastPass: {
@@ -216,5 +239,30 @@ describe('handleReplyFlow', () => {
       { blipId: 'b+placeholder', content: 'Working on this.' },
       'Sorry, I ran into a problem while working on this. Please try again.',
     );
+  });
+
+  it('falls back to full-pass handling when fast pass ignores an explicit mention', async () => {
+    const deps = makeDeps({
+      payload: {
+        ...basePayload,
+        isExplicitMention: true,
+      },
+      fastPass: {
+        decide: vi.fn().mockResolvedValue(
+          makeDecision({
+            action: 'ignore',
+            message: null,
+            etaBucket: null,
+          }),
+        ),
+      },
+    });
+
+    const result = await handleReplyFlow(deps);
+
+    expect(result.outcome).toBe('full_answer_no_fast_pass');
+    expect(deps.delivery.postReply).toHaveBeenCalledWith('Final answer');
+    expect(deps.delivery.postPlaceholder).not.toHaveBeenCalled();
+    expect(deps.fullPass).toHaveBeenCalledOnce();
   });
 });

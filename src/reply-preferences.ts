@@ -45,7 +45,11 @@ export function detectReplyPreferenceUpdate(
     return { mode: 'normal', updatedBy: author, updatedAt: now };
   }
 
-  const isDirected = isExplicitMention || /\b(?:you|bot)\b/i.test(normalized);
+  const isDirected =
+    isExplicitMention ||
+    /^(?:\s*(?:you|bot)\b(?:[,!:]\s*|\s+))(?:please\s+)?(?:stop\s+responding|stop\s+replying|be\s+quiet|shut\s+up|don't\s+reply|don't\s+respond|do\s+not\s+reply|do\s+not\s+respond)\b/i.test(
+      normalized,
+    );
   const isQuietCommand =
     QUIET_ANYWHERE_PATTERNS.some((pattern) => pattern.test(normalized)) ||
     (isDirected && QUIET_DIRECTED_PATTERNS.some((pattern) => pattern.test(normalized)));

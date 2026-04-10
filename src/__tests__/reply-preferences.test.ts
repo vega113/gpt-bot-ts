@@ -69,6 +69,15 @@ describe('detectReplyPreferenceUpdate', () => {
       }),
     ).toBeNull();
   });
+
+  it('does not treat incidental bot references as quiet commands', () => {
+    expect(
+      detectReplyPreferenceUpdate('I told the other bot to stop responding.', {
+        isExplicitMention: false,
+        author: 'alice@example.com',
+      }),
+    ).toBeNull();
+  });
 });
 
 describe('shouldSuppressReply', () => {

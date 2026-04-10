@@ -43,9 +43,9 @@ For `ack_and_work`, the bot posts an immediate placeholder such as:
 - `Working on this. This may take around 10-20 seconds.`
 - `Working on this. This could take up to about a minute.`
 
-When the full answer is ready, the bot deletes the placeholder blip and posts the final answer in the same thread. This delete-and-repost approach intentionally preserves existing Markdown-to-Wave annotation behavior; in-place `document.modify REPLACE` does not carry arbitrary ranged Markdown annotations cleanly enough for this slice.
+When the full answer is ready, the bot posts the final answer in the same thread first and then best-effort deletes the placeholder blip. This post-then-delete approach intentionally preserves existing Markdown-to-Wave annotation behavior; in-place `document.modify REPLACE` does not carry arbitrary ranged Markdown annotations cleanly enough for this slice, and posting first avoids leaving the conversation empty if placeholder deletion succeeds but the final post fails.
 
-If placeholder deletion fails, the bot still posts the final answer and logs the stale placeholder. If the full pass fails or times out, the bot deletes the placeholder when possible and posts a short error reply.
+If placeholder deletion fails, the bot keeps the posted final answer and logs the stale placeholder. If the full pass fails or times out, the bot deletes the placeholder when possible and posts a short error reply.
 
 ## Reply Preferences
 
