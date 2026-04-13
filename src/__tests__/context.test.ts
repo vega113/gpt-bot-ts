@@ -117,6 +117,37 @@ describe('context', () => {
       await expect(session.popItem()).resolves.toBeUndefined();
     });
 
+    it('getItems applies limit after dropping hidden decision envelopes', async () => {
+      const session = getSession('wave-a') as any;
+
+      await session.delegate.addItems([
+        {
+          type: 'message',
+          role: 'user',
+          content: '[alice]: earlier visible context',
+        },
+        {
+          type: 'message',
+          role: 'assistant',
+          status: 'completed',
+          content: [
+            {
+              type: 'output_text',
+              text: `{"kind":"${BOT_REPLY_DECISION_KIND}","shouldReply":false,"response":null}`,
+            },
+          ],
+        },
+      ]);
+
+      await expect(session.getItems(1)).resolves.toEqual([
+        {
+          type: 'message',
+          role: 'user',
+          content: '[alice]: earlier visible context',
+        },
+      ]);
+    });
+
     it('matches the SDK single-argument runCompaction signature in source', async () => {
       const source = await readFile(new URL('../context.ts', import.meta.url), 'utf8');
 

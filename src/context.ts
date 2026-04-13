@@ -35,8 +35,26 @@ class WaveConversationSession implements Session {
   }
 
   async getItems(limit?: number) {
-    const items = await this.delegate.getItems(limit);
-    return normalizeItemsForConversationMemory(items);
+    if (limit === undefined) {
+      const items = await this.delegate.getItems();
+      return normalizeItemsForConversationMemory(items);
+    }
+
+    if (limit <= 0) {
+      return [];
+    }
+
+    let rawLimit = limit;
+    while (true) {
+      const items = await this.delegate.getItems(rawLimit);
+      const normalizedItems = normalizeItemsForConversationMemory(items);
+
+      if (normalizedItems.length >= limit || items.length < rawLimit) {
+        return normalizedItems.slice(-limit);
+      }
+
+      rawLimit *= 2;
+    }
   }
 
   async addItems(items: Parameters<Session['addItems']>[0]): Promise<void> {
