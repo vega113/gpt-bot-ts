@@ -1,7 +1,9 @@
 import type { AgentInputItem } from '@openai/agents';
+import { BOT_REPLY_DECISION_KIND } from './bot-decision.js';
 import { normalizeVisibleReplyText } from './sanitize-response.js';
 
 type AssistantDecision = {
+  kind?: string;
   shouldReply?: boolean;
   response?: string | null;
 };
@@ -28,6 +30,9 @@ function normalizeAssistantDecisionItem(item: AgentInputItem): NormalizedDecisio
 
   try {
     const decision = JSON.parse(text) as AssistantDecision;
+    if (decision.kind !== BOT_REPLY_DECISION_KIND) {
+      return { action: 'keep' };
+    }
 
     if (decision.shouldReply === false) {
       return { action: 'drop' };

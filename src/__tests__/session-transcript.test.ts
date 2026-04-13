@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeItemsForConversationMemory } from '../session-transcript.js';
 
+const BOT_REPLY_DECISION_KIND = 'bot_reply_decision';
+
 describe('normalizeItemsForConversationMemory', () => {
   it('replaces assistant decision JSON with the sanitized visible reply text', () => {
     const items = [
@@ -11,7 +13,7 @@ describe('normalizeItemsForConversationMemory', () => {
         content: [
           {
             type: 'output_text',
-            text: '{"shouldReply":true,"response":"Here is the chart summary【turn0search0】 from (example.com)."}',
+            text: `{"kind":"${BOT_REPLY_DECISION_KIND}","shouldReply":true,"response":"Here is the chart summary【turn0search0】 from (example.com)."}`,
           },
         ],
       },
@@ -41,13 +43,31 @@ describe('normalizeItemsForConversationMemory', () => {
         content: [
           {
             type: 'output_text',
-            text: '{"shouldReply":false,"response":null}',
+            text: `{"kind":"${BOT_REPLY_DECISION_KIND}","shouldReply":false,"response":null}`,
           },
         ],
       },
     ];
 
     expect(normalizeItemsForConversationMemory(items)).toEqual([]);
+  });
+
+  it('does not rewrite arbitrary assistant JSON replies without the internal decision marker', () => {
+    const items = [
+      {
+        type: 'message',
+        role: 'assistant',
+        status: 'completed',
+        content: [
+          {
+            type: 'output_text',
+            text: '{"shouldReply":true,"response":"Visible JSON reply"}',
+          },
+        ],
+      },
+    ];
+
+    expect(normalizeItemsForConversationMemory(items)).toEqual(items);
   });
 
   it('leaves non-decision items untouched', () => {

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { handleReplyFlow, type ReplyFlowDeps } from '../reply-flow.js';
 import type { FastPassDecision } from '../fast-pass.js';
 import type { ReplyPreferenceState } from '../reply-preferences.js';
+import { BOT_REPLY_DECISION_KIND } from '../bot-decision.js';
 
 const basePayload = {
   waveId: 'wave1',
@@ -36,7 +37,11 @@ function makeDeps(overrides: Partial<ReplyFlowDeps> = {}): ReplyFlowDeps {
     },
     fastPassTimeoutMs: 50,
     fullPass: vi.fn().mockResolvedValue({
-      decision: { shouldReply: true, response: 'Final answer' },
+      decision: {
+        kind: BOT_REPLY_DECISION_KIND,
+        shouldReply: true,
+        response: 'Final answer',
+      },
       pendingImages: [],
     }),
     delivery: {
@@ -160,7 +165,11 @@ describe('handleReplyFlow', () => {
     const deps = makeDeps({
       fastPass: null,
       fullPass: vi.fn().mockResolvedValue({
-        decision: { shouldReply: true, response: '   ' },
+        decision: {
+          kind: BOT_REPLY_DECISION_KIND,
+          shouldReply: true,
+          response: '   ',
+        },
         pendingImages: [],
       }),
     });
@@ -176,7 +185,11 @@ describe('handleReplyFlow', () => {
   it('falls back to the default reply when the full agent returns blank text after ack', async () => {
     const deps = makeDeps({
       fullPass: vi.fn().mockResolvedValue({
-        decision: { shouldReply: true, response: '   ' },
+        decision: {
+          kind: BOT_REPLY_DECISION_KIND,
+          shouldReply: true,
+          response: '   ',
+        },
         pendingImages: [],
       }),
     });
@@ -193,7 +206,11 @@ describe('handleReplyFlow', () => {
   it('deletes the placeholder when the full agent chooses not to reply after ack', async () => {
     const deps = makeDeps({
       fullPass: vi.fn().mockResolvedValue({
-        decision: { shouldReply: false, response: null },
+        decision: {
+          kind: BOT_REPLY_DECISION_KIND,
+          shouldReply: false,
+          response: null,
+        },
         pendingImages: [],
       }),
     });
@@ -211,7 +228,11 @@ describe('handleReplyFlow', () => {
   it('keeps the ignored-after-ack outcome when placeholder deletion fails', async () => {
     const deps = makeDeps({
       fullPass: vi.fn().mockResolvedValue({
-        decision: { shouldReply: false, response: null },
+        decision: {
+          kind: BOT_REPLY_DECISION_KIND,
+          shouldReply: false,
+          response: null,
+        },
         pendingImages: [],
       }),
       delivery: {
