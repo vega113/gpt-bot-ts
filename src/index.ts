@@ -38,6 +38,7 @@ import { createReplyDelivery } from './reply-delivery.js';
 import { handleReplyFlow } from './reply-flow.js';
 import { OpenAIFastPassClient } from './fast-pass.js';
 import { enqueueWaveJob } from './wave-job-queue.js';
+import { clearRespondedContentIfCurrent } from './responded-content.js';
 
 // ── config ───────────────────────────────────────────────────
 
@@ -337,12 +338,6 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
   // Respond immediately so the Wave server doesn't time out
   res.json([notifyOp]);
 
-  // Skip new work if shutting down
-  if (shutdownRequested) {
-    respondedContent.delete(blip.blipId);
-    return;
-  }
-
   const delivery = createReplyDelivery(waveClient, {
     waveId,
     waveletId,
@@ -360,9 +355,10 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
   }
 
   void enqueueWaveJob(waveId, async () => {
-    // Track in-flight job for graceful shutdown.
+    // Track in-flight work when the queued job actually starts so shutdown
+    // waits for accepted work, including jobs that were queued behind another
+    // same-wave request before SIGTERM landed.
     activeJobs++;
-    // Process asynchronously and post reply via data API.
     try {
       const result = await handleReplyFlow({
         replyPreference: getReplyPreference(waveId),
@@ -424,11 +420,11 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
 
       console.log(`[flow] wave=${waveId} outcome=${result.outcome}`);
       if (result.outcome === 'error') {
-        respondedContent.delete(blip.blipId);
+        clearRespondedContentIfCurrent(respondedContent, blip.blipId, userMessage);
       }
     } catch (err) {
       console.error(`[error] wave=${waveId}`, err);
-      respondedContent.delete(blip.blipId);
+      clearRespondedContentIfCurrent(respondedContent, blip.blipId, userMessage);
       try {
         await delivery.postReply(
           'Sorry, I encountered an error processing your message. Please try again.',
@@ -439,6 +435,9 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
     } finally {
       activeJobs--;
     }
+  }).catch((queueErr) => {
+    clearRespondedContentIfCurrent(respondedContent, blip.blipId, userMessage);
+    console.error(`[queue-error] wave=${waveId} blip=${blip.blipId}`, queueErr);
   });
 });
 

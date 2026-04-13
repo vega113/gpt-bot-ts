@@ -92,4 +92,22 @@ describe('normalizeItemsForConversationMemory', () => {
 
     expect(normalizeItemsForConversationMemory(items)).toEqual(items);
   });
+
+  it('preserves the original array when no items need normalization', () => {
+    const items = [
+      {
+        type: 'message',
+        role: 'assistant',
+        status: 'completed',
+        content: [
+          {
+            type: 'output_text',
+            text: 'Plain assistant text',
+          },
+        ],
+      },
+    ];
+
+    expect(normalizeItemsForConversationMemory(items)).toBe(items);
+  });
 });

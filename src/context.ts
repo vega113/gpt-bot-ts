@@ -58,7 +58,8 @@ class WaveConversationSession implements Session {
   }
 
   async addItems(items: Parameters<Session['addItems']>[0]): Promise<void> {
-    await this.delegate.addItems(normalizeItemsForConversationMemory(items));
+    const normalized = normalizeItemsForConversationMemory(items);
+    await this.delegate.addItems(normalized === items ? items : normalized);
   }
 
   async popItem() {
