@@ -11,10 +11,12 @@ import {
 } from './reply-preferences.js';
 import type { PendingImage, ProcessResult } from './agent.js';
 import type { PostedReply, ReplyDelivery } from './reply-delivery.js';
-import { linkifyBareUrls, sanitizeLlmResponse } from './sanitize-response.js';
+import {
+  DEFAULT_VISIBLE_REPLY_FALLBACK,
+  normalizeVisibleReplyText,
+} from './sanitize-response.js';
 
 const ERROR_REPLY = 'Sorry, I ran into a problem while working on this. Please try again.';
-const FULL_PASS_FALLBACK_REPLY = 'I had trouble generating a response. Please try again.';
 
 export interface ReplyFlowPayload {
   waveId: string;
@@ -68,8 +70,7 @@ function buildFastPassInput(
 }
 
 function cleanVisibleModelText(text: string | null | undefined): string {
-  if (!text) return FULL_PASS_FALLBACK_REPLY;
-  return linkifyBareUrls(sanitizeLlmResponse(text)) || FULL_PASS_FALLBACK_REPLY;
+  return normalizeVisibleReplyText(text, DEFAULT_VISIBLE_REPLY_FALLBACK);
 }
 
 async function runFullPass(deps: ReplyFlowDeps): Promise<ProcessResult> {

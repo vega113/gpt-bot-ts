@@ -37,6 +37,7 @@ import { decodeTokenExpiry, checkTokenExpiry } from './token-utils.js';
 import { createReplyDelivery } from './reply-delivery.js';
 import { handleReplyFlow } from './reply-flow.js';
 import { OpenAIFastPassClient } from './fast-pass.js';
+import { enqueueWaveJob } from './wave-job-queue.js';
 
 // ── config ───────────────────────────────────────────────────
 
@@ -337,7 +338,10 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
   res.json([notifyOp]);
 
   // Skip new work if shutting down
-  if (shutdownRequested) return;
+  if (shutdownRequested) {
+    respondedContent.delete(blip.blipId);
+    return;
+  }
 
   const delivery = createReplyDelivery(waveClient, {
     waveId,
@@ -355,85 +359,87 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
     }
   }
 
-  // Track in-flight job for graceful shutdown
-  activeJobs++;
-  // Process asynchronously and post reply via data API
-  try {
-    const result = await handleReplyFlow({
-      replyPreference: getReplyPreference(waveId),
-      payload: {
-        waveId,
-        waveletId,
-        parentBlipId: blip.blipId,
-        isInThread,
-        isExplicitMention: mentionsBot(blip.content, ROBOT_ADDRESS),
-        userMessage,
-        author,
-        botAddress: ROBOT_ADDRESS,
-        parentContext,
-        participantCount: bundle.wavelet.participants.length,
-      },
-      fastPass: fastPassClient,
-      fastPassTimeoutMs: FAST_PASS_TIMEOUT_MS,
-      fullPassTimeoutMs: FULL_PASS_TIMEOUT_MS,
-      fullPass: () => processMessage({
-        waveId,
-        waveletId,
-        userMessage,
-        author,
-        waveClient,
-        parentContext,
-      }),
-      delivery,
-      onReplyPreference: (state) => setReplyPreference(waveId, state),
-      onFastReply: async (assistantMessage) => {
-        try {
-          const session = getSession(waveId);
-          await session.addItems([
-            { role: 'user', content: `[${author}]: ${userMessage}` },
-            {
-              role: 'assistant',
-              status: 'completed',
-              content: [{ type: 'output_text', text: assistantMessage }],
-            },
-          ]);
-        } catch (sessionErr) {
-          console.warn('[flow] failed to record fast reply in session', sessionErr);
-        }
-      },
-      onImages: async (replyBlipId, pendingImages) => {
-        if (!replyBlipId || pendingImages.length === 0) return;
-        for (const img of pendingImages) {
-          try {
-            await waveClient.importAttachment(
-              waveId, waveletId, img.attachmentId, img.fileName, ROBOT_ADDRESS, img.base64Data,
-            );
-            await waveClient.insertImage(waveId, waveletId, replyBlipId, img.attachmentId, img.caption);
-            console.log(`[image] wave=${waveId} uploaded+inserted ${img.attachmentId} into blip=${replyBlipId}`);
-          } catch (imgErr) {
-            console.error(`[image-error] wave=${waveId} failed to upload/insert ${img.attachmentId}`, imgErr);
-          }
-        }
-      },
-    });
-
-    console.log(`[flow] wave=${waveId} outcome=${result.outcome}`);
-    if (result.outcome === 'error') {
-      respondedContent.delete(blip.blipId);
-    }
-  } catch (err) {
-    console.error(`[error] wave=${waveId}`, err);
-    respondedContent.delete(blip.blipId);
+  void enqueueWaveJob(waveId, async () => {
+    // Track in-flight job for graceful shutdown.
+    activeJobs++;
+    // Process asynchronously and post reply via data API.
     try {
-      await delivery.postReply(
-        'Sorry, I encountered an error processing your message. Please try again.',
-      );
-    } catch (replyErr) {
-      console.error(`[error] failed to post error reply`, replyErr);
+      const result = await handleReplyFlow({
+        replyPreference: getReplyPreference(waveId),
+        payload: {
+          waveId,
+          waveletId,
+          parentBlipId: blip.blipId,
+          isInThread,
+          isExplicitMention: mentionsBot(blip.content, ROBOT_ADDRESS),
+          userMessage,
+          author,
+          botAddress: ROBOT_ADDRESS,
+          parentContext,
+          participantCount: bundle.wavelet.participants.length,
+        },
+        fastPass: fastPassClient,
+        fastPassTimeoutMs: FAST_PASS_TIMEOUT_MS,
+        fullPassTimeoutMs: FULL_PASS_TIMEOUT_MS,
+        fullPass: () => processMessage({
+          waveId,
+          waveletId,
+          userMessage,
+          author,
+          waveClient,
+          parentContext,
+        }),
+        delivery,
+        onReplyPreference: (state) => setReplyPreference(waveId, state),
+        onFastReply: async (assistantMessage) => {
+          try {
+            const session = getSession(waveId);
+            await session.addItems([
+              { role: 'user', content: `[${author}]: ${userMessage}` },
+              {
+                role: 'assistant',
+                status: 'completed',
+                content: [{ type: 'output_text', text: assistantMessage }],
+              },
+            ]);
+          } catch (sessionErr) {
+            console.warn('[flow] failed to record fast reply in session', sessionErr);
+          }
+        },
+        onImages: async (replyBlipId, pendingImages) => {
+          if (!replyBlipId || pendingImages.length === 0) return;
+          for (const img of pendingImages) {
+            try {
+              await waveClient.importAttachment(
+                waveId, waveletId, img.attachmentId, img.fileName, ROBOT_ADDRESS, img.base64Data,
+              );
+              await waveClient.insertImage(waveId, waveletId, replyBlipId, img.attachmentId, img.caption);
+              console.log(`[image] wave=${waveId} uploaded+inserted ${img.attachmentId} into blip=${replyBlipId}`);
+            } catch (imgErr) {
+              console.error(`[image-error] wave=${waveId} failed to upload/insert ${img.attachmentId}`, imgErr);
+            }
+          }
+        },
+      });
+
+      console.log(`[flow] wave=${waveId} outcome=${result.outcome}`);
+      if (result.outcome === 'error') {
+        respondedContent.delete(blip.blipId);
+      }
+    } catch (err) {
+      console.error(`[error] wave=${waveId}`, err);
+      respondedContent.delete(blip.blipId);
+      try {
+        await delivery.postReply(
+          'Sorry, I encountered an error processing your message. Please try again.',
+        );
+      } catch (replyErr) {
+        console.error(`[error] failed to post error reply`, replyErr);
+      }
+    } finally {
+      activeJobs--;
     }
-  } finally {
-    activeJobs--;
-  }
+  });
 });
 
 // ── start ────────────────────────────────────────────────────

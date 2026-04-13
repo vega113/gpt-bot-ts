@@ -159,3 +159,14 @@ export function linkifyBareUrls(text: string): string {
     return match;
   });
 }
+
+export const DEFAULT_VISIBLE_REPLY_FALLBACK =
+  'I had trouble generating a response. Please try again.';
+
+export function normalizeVisibleReplyText(
+  text: string | null | undefined,
+  fallback = DEFAULT_VISIBLE_REPLY_FALLBACK,
+): string {
+  if (!text) return fallback;
+  return linkifyBareUrls(sanitizeLlmResponse(text)) || fallback;
+}

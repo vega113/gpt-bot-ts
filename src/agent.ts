@@ -12,7 +12,7 @@ import { webSearch } from './tools/web-search.js';
 import { createWaveReadTool } from './tools/wave-read.js';
 import { getSession } from './context.js';
 import { WaveClient } from './wave-client.js';
-import { sanitizeLlmResponse, linkifyBareUrls } from './sanitize-response.js';
+import { normalizeVisibleReplyText } from './sanitize-response.js';
 
 /**
  * Structured output schema for the bot's reply decision.
@@ -237,15 +237,7 @@ export async function processMessage({
           });
         }
       }
-      const sanitized = sanitizeLlmResponse(decision.response);
-      // Convert bare domain references (e.g. "(coinmarketcap.com)") and bare
-      // URLs to proper Markdown links so markdownToWave can produce link
-      // annotations and they render as clickable in the Wave UI.
-      const linked = linkifyBareUrls(sanitized);
-      // If sanitization reduces the response to an empty string (e.g. the
-      // model returned only citation markers), fall back to a safe message
-      // so the bot never posts a blank reply.
-      decision.response = linked || 'I had trouble generating a response. Please try again.';
+      decision.response = normalizeVisibleReplyText(decision.response);
     }
     // Only forward pending images when the bot will actually post a reply.
     // Discarding them when shouldReply=false avoids orphaned uploads.
