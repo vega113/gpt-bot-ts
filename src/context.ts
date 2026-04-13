@@ -42,9 +42,15 @@ class WaveConversationSession implements Session {
   }
 
   async popItem() {
-    const item = await this.delegate.popItem();
-    if (!item) return item;
-    return normalizeItemsForConversationMemory([item])[0];
+    while (true) {
+      const item = await this.delegate.popItem();
+      if (!item) return item;
+
+      const normalizedItem = normalizeItemsForConversationMemory([item])[0];
+      if (normalizedItem) {
+        return normalizedItem;
+      }
+    }
   }
 
   async clearSession(): Promise<void> {

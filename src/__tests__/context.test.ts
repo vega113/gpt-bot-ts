@@ -1,12 +1,59 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { BOT_REPLY_DECISION_KIND } from '../bot-decision.js';
 
 // Mock @openai/agents before importing context.ts
 vi.mock('@openai/agents', () => ({
   MemorySession: class MemorySession {
+    private readonly items: unknown[] = [];
+
     constructor() {}
+
+    async getSessionId() {
+      return 'memory-session';
+    }
+
+    async getItems(limit?: number) {
+      if (typeof limit === 'number') {
+        return this.items.slice(-limit);
+      }
+
+      return [...this.items];
+    }
+
+    async addItems(items: unknown[]) {
+      this.items.push(...items);
+    }
+
+    async popItem() {
+      return this.items.pop();
+    }
+
+    async clearSession() {
+      this.items.length = 0;
+    }
   },
   OpenAIResponsesCompactionSession: class OpenAIResponsesCompactionSession {
-    constructor(_opts: unknown) {}
+    constructor(private readonly opts: { underlyingSession: InstanceType<typeof MemorySession> }) {}
+
+    async getSessionId() {
+      return this.opts.underlyingSession.getSessionId();
+    }
+
+    async getItems(limit?: number) {
+      return this.opts.underlyingSession.getItems(limit);
+    }
+
+    async addItems(items: unknown[]) {
+      await this.opts.underlyingSession.addItems(items);
+    }
+
+    async popItem() {
+      return this.opts.underlyingSession.popItem();
+    }
+
+    async clearSession() {
+      await this.opts.underlyingSession.clearSession();
+    }
   },
 }));
 
@@ -37,6 +84,36 @@ describe('context', () => {
       const s1 = getSession('wave-a');
       const s2 = getSession('wave-b');
       expect(s1).not.toBe(s2);
+    });
+
+    it('popItem skips dropped decision envelopes until it finds a visible item', async () => {
+      const session = getSession('wave-a') as any;
+
+      await session.delegate.addItems([
+        {
+          type: 'message',
+          role: 'user',
+          content: '[alice]: earlier visible context',
+        },
+        {
+          type: 'message',
+          role: 'assistant',
+          status: 'completed',
+          content: [
+            {
+              type: 'output_text',
+              text: `{"kind":"${BOT_REPLY_DECISION_KIND}","shouldReply":false,"response":null}`,
+            },
+          ],
+        },
+      ]);
+
+      await expect(session.popItem()).resolves.toEqual({
+        type: 'message',
+        role: 'user',
+        content: '[alice]: earlier visible context',
+      });
+      await expect(session.popItem()).resolves.toBeUndefined();
     });
   });
 
