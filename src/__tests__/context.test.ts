@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { BOT_REPLY_DECISION_KIND } from '../bot-decision.js';
 
@@ -114,6 +115,16 @@ describe('context', () => {
         content: '[alice]: earlier visible context',
       });
       await expect(session.popItem()).resolves.toBeUndefined();
+    });
+
+    it('matches the SDK single-argument runCompaction signature in source', async () => {
+      const source = await readFile(new URL('../context.ts', import.meta.url), 'utf8');
+
+      expect(source).toContain('OpenAIResponsesCompactionArgs');
+      expect(source).toContain('OpenAIResponsesCompactionAwareSession');
+      expect(source).toContain("Partial<Pick<OpenAIResponsesCompactionAwareSession, 'runCompaction'>>");
+      expect(source).toContain('async runCompaction(args?: OpenAIResponsesCompactionArgs)');
+      expect(source).not.toContain('runCompaction?: (...args: any[]) => Promise<unknown> | unknown;');
     });
   });
 

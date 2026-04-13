@@ -11,7 +11,11 @@ import {
   MemorySession,
   OpenAIResponsesCompactionSession,
 } from '@openai/agents';
-import type { Session } from '@openai/agents';
+import type {
+  OpenAIResponsesCompactionArgs,
+  OpenAIResponsesCompactionAwareSession,
+  Session,
+} from '@openai/agents';
 import type { ReplyPreferenceState } from './reply-preferences.js';
 import { normalizeItemsForConversationMemory } from './session-transcript.js';
 
@@ -21,9 +25,7 @@ const replyPreferences = new Map<string, ReplyPreferenceState>();
 /** Compaction triggers when history exceeds this many items. */
 const COMPACTION_THRESHOLD = 20;
 
-type CompactionAwareSession = Session & {
-  runCompaction?: (...args: any[]) => Promise<unknown> | unknown;
-};
+type CompactionAwareSession = Session & Partial<Pick<OpenAIResponsesCompactionAwareSession, 'runCompaction'>>;
 
 class WaveConversationSession implements Session {
   constructor(private readonly delegate: CompactionAwareSession) {}
@@ -57,7 +59,7 @@ class WaveConversationSession implements Session {
     await this.delegate.clearSession();
   }
 
-  async runCompaction(args?: unknown): Promise<unknown> {
+  async runCompaction(args?: OpenAIResponsesCompactionArgs): Promise<unknown> {
     if (typeof this.delegate.runCompaction !== 'function') return null;
     return this.delegate.runCompaction(args);
   }
