@@ -12,7 +12,11 @@ import { webSearch } from './tools/web-search.js';
 import { createWaveReadTool } from './tools/wave-read.js';
 import { getSession } from './context.js';
 import { WaveClient } from './wave-client.js';
-import { sanitizeLlmResponse, linkifyBareUrls } from './sanitize-response.js';
+import { BOT_REPLY_DECISION_KIND } from './bot-decision.js';
+import {
+  DEFAULT_VISIBLE_REPLY_FALLBACK,
+  normalizeVisibleReplyText,
+} from './sanitize-response.js';
 
 /**
  * Structured output schema for the bot's reply decision.
@@ -20,6 +24,7 @@ import { sanitizeLlmResponse, linkifyBareUrls } from './sanitize-response.js';
  * The LLM returns this object so the bot can decide whether to post at all.
  */
 const BotDecision = z.object({
+  kind: z.literal(BOT_REPLY_DECISION_KIND),
   shouldReply: z.boolean().describe('Whether the bot should post a reply'),
   response: z
     .string()
@@ -51,7 +56,9 @@ const SYSTEM_PROMPT = `You are ${BOT_NAME}, a helpful AI assistant inside SupaWa
 
 ## Reply Decision
 
-You MUST decide whether to reply at all. Return a JSON object with shouldReply and response.
+You MUST decide whether to reply at all. Return a JSON object with kind, shouldReply and response.
+
+Set kind to exactly "${BOT_REPLY_DECISION_KIND}".
 
 **Always reply (shouldReply: true) when:**
 - You are directly @-mentioned (the message contains "@${BOT_NAME}")
@@ -237,15 +244,7 @@ export async function processMessage({
           });
         }
       }
-      const sanitized = sanitizeLlmResponse(decision.response);
-      // Convert bare domain references (e.g. "(coinmarketcap.com)") and bare
-      // URLs to proper Markdown links so markdownToWave can produce link
-      // annotations and they render as clickable in the Wave UI.
-      const linked = linkifyBareUrls(sanitized);
-      // If sanitization reduces the response to an empty string (e.g. the
-      // model returned only citation markers), fall back to a safe message
-      // so the bot never posts a blank reply.
-      decision.response = linked || 'I had trouble generating a response. Please try again.';
+      decision.response = normalizeVisibleReplyText(decision.response);
     }
     // Only forward pending images when the bot will actually post a reply.
     // Discarding them when shouldReply=false avoids orphaned uploads.
@@ -255,7 +254,11 @@ export async function processMessage({
 
   // Fallback: if the agent didn't produce structured output, reply anyway
   return {
-    decision: { shouldReply: true, response: 'I had trouble generating a response. Please try again.' },
+    decision: {
+      kind: BOT_REPLY_DECISION_KIND,
+      shouldReply: true,
+      response: DEFAULT_VISIBLE_REPLY_FALLBACK,
+    },
     pendingImages: context.pendingImages ?? [],
   };
 }
