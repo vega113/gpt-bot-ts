@@ -97,7 +97,6 @@ const CAPABILITIES_HASH = 'sha256:gpt-bot-ts-v3';
 
 /** Count of active background reply jobs for graceful shutdown. */
 let activeJobs = 0;
-let shutdownRequested = false;
 
 // ── deduplication ────────────────────────────────────────────
 
@@ -451,7 +450,6 @@ const server = app.listen(PORT, () => {
 
 process.on('SIGTERM', () => {
   console.log('[shutdown] SIGTERM received, draining...');
-  shutdownRequested = true;
   server.close(() => {
     console.log('[shutdown] Server closed, waiting for in-flight jobs...');
     const check = setInterval(() => {

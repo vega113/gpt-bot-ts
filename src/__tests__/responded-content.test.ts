@@ -15,4 +15,11 @@ describe('clearRespondedContentIfCurrent', () => {
     expect(clearRespondedContentIfCurrent(respondedContent, 'b+1', 'older version')).toBe(false);
     expect(respondedContent.get('b+1')).toBe('newer version');
   });
+
+  it('returns false and leaves the map unchanged when the blip is missing', () => {
+    const respondedContent = new Map<string, string>();
+
+    expect(clearRespondedContentIfCurrent(respondedContent, 'missing', 'any content')).toBe(false);
+    expect(respondedContent.size).toBe(0);
+  });
 });
