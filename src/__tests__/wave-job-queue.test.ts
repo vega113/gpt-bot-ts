@@ -12,6 +12,39 @@ function createDeferred<T = void>() {
 }
 
 describe('enqueueWaveJob', () => {
+  it('continues processing the same wave after a job rejects', async () => {
+    const events: string[] = [];
+    const firstStarted = createDeferred();
+    const allowFirstToReject = createDeferred();
+    let secondStarted = false;
+
+    const first = enqueueWaveJob('wave-1', async () => {
+      events.push('first-start');
+      firstStarted.resolve();
+      await allowFirstToReject.promise;
+      events.push('first-error');
+      throw new Error('boom');
+    });
+
+    await firstStarted.promise;
+
+    const second = enqueueWaveJob('wave-1', async () => {
+      secondStarted = true;
+      events.push('second-start');
+      events.push('second-end');
+      return 'ok';
+    });
+
+    await Promise.resolve();
+    expect(secondStarted).toBe(false);
+
+    allowFirstToReject.resolve();
+
+    await expect(first).rejects.toThrow('boom');
+    await expect(second).resolves.toBe('ok');
+    expect(events).toEqual(['first-start', 'first-error', 'second-start', 'second-end']);
+  });
+
   it('serializes jobs for the same wave in enqueue order', async () => {
     const events: string[] = [];
     const firstJob = createDeferred<void>();
