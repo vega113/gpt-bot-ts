@@ -53,6 +53,10 @@ function parseTimeoutMs(value: string | undefined, fallback: number): number {
 
 const FAST_PASS_TIMEOUT_MS = parseTimeoutMs(process.env['FAST_PASS_TIMEOUT_MS'], 2500);
 const FULL_PASS_TIMEOUT_MS = parseTimeoutMs(process.env['FULL_PASS_TIMEOUT_MS'], 90000);
+const FULL_PASS_FALLBACK_TIMEOUT_MS = parseTimeoutMs(
+  process.env['FULL_PASS_FALLBACK_TIMEOUT_MS'],
+  8000,
+);
 
 if (!SUPAWAVE_TOKEN) {
   console.error('SUPAWAVE_TOKEN environment variable is required');
@@ -359,6 +363,9 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
     }
   }
 
+  const isExplicitMention = mentionsBot(blip.content, ROBOT_ADDRESS);
+  const participantCount = bundle.wavelet.participants.length;
+
   void enqueueWaveJob(waveId, async () => {
     // Track in-flight job for graceful shutdown.
     activeJobs++;
@@ -371,16 +378,17 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
           waveletId,
           parentBlipId: blip.blipId,
           isInThread,
-          isExplicitMention: mentionsBot(blip.content, ROBOT_ADDRESS),
+          isExplicitMention,
           userMessage,
           author,
           botAddress: ROBOT_ADDRESS,
           parentContext,
-          participantCount: bundle.wavelet.participants.length,
+          participantCount,
         },
         fastPass: fastPassClient,
         fastPassTimeoutMs: FAST_PASS_TIMEOUT_MS,
         fullPassTimeoutMs: FULL_PASS_TIMEOUT_MS,
+        fullPassFallbackTimeoutMs: FULL_PASS_FALLBACK_TIMEOUT_MS + 250,
         fullPass: async () => {
           const startedAt = Date.now();
           try {
@@ -415,6 +423,8 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
             author,
             waveClient,
             parentContext,
+            isExplicitMention,
+            participantCount,
           });
         },
         delivery,

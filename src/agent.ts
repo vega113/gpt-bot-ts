@@ -52,7 +52,12 @@ export interface WaveContext {
 }
 
 const BOT_NAME = (process.env['ROBOT_ADDRESS'] ?? 'gpt-ts-bot@supawave.ai').split('@')[0];
-const TIMEOUT_FALLBACK_MODEL = process.env['FULL_PASS_FALLBACK_MODEL'] ?? 'gpt-4.1-mini';
+const TIMEOUT_FALLBACK_MODEL =
+  process.env['FULL_PASS_FALLBACK_MODEL']?.trim() || 'gpt-4.1-mini';
+const TIMEOUT_FALLBACK_TIMEOUT_MS = parsePositiveIntEnv(
+  process.env['FULL_PASS_FALLBACK_TIMEOUT_MS'],
+  8_000,
+);
 const TIME_SENSITIVE_FACT_RE =
   /\b(today|latest|current|right now|news|price|market|weather|who won|score|bitcoin|btc|stock)\b/i;
 
@@ -132,6 +137,11 @@ let agent: Agent<WaveContext, typeof BotDecision> | null = null;
 let agentInitPromise: Promise<Agent<WaveContext, typeof BotDecision>> | null = null;
 let timeoutFallbackClient: OpenAI | null = null;
 
+function parsePositiveIntEnv(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 function getTimeoutFallbackClient(): OpenAI {
   timeoutFallbackClient ??= new OpenAI();
   return timeoutFallbackClient;
@@ -177,6 +187,8 @@ export interface ProcessMessageOptions {
   waveClient: WaveClient;
   /** Content of the parent blip this message is replying to (inline thread). */
   parentContext?: string;
+  isExplicitMention?: boolean;
+  participantCount?: number;
 }
 
 /** Result from processMessage including the bot's decision and any generated images. */
@@ -194,6 +206,16 @@ function shouldUseTimeoutFallback({
   // requests where web search can return quickly, not for threaded/contextual
   // analysis or image/tool-heavy tasks.
   return !parentContext && TIME_SENSITIVE_FACT_RE.test(userMessage);
+}
+
+function shouldReplyFromTimeoutFallback({
+  isExplicitMention = false,
+  participantCount = 2,
+}: Pick<ProcessMessageOptions, 'isExplicitMention' | 'participantCount'>): boolean {
+  // The main reply flow already enforces explicit quiet-mode preferences.
+  // This fallback gate keeps the fast path conservative in larger waves where
+  // the stalled full-pass reasoning would normally decide whether to speak.
+  return isExplicitMention || participantCount <= 2;
 }
 
 /**
@@ -290,23 +312,52 @@ export async function processMessageTimeoutFallback(
     return null;
   }
 
-  const response = await getTimeoutFallbackClient().responses.create({
-    model: TIMEOUT_FALLBACK_MODEL,
-    tools: [{ type: 'web_search' }],
-    input: [
-      `You are ${BOT_NAME}, a helpful AI assistant inside SupaWave.`,
-      'Answer the user in concise Markdown.',
-      'Do not include raw citation markers or tool artifacts.',
-      `User message from ${options.author}: ${options.userMessage}`,
-    ].join('\n\n'),
-  });
+  if (!shouldReplyFromTimeoutFallback(options)) {
+    return {
+      decision: {
+        kind: BOT_REPLY_DECISION_KIND,
+        shouldReply: false,
+        response: null,
+      },
+      pendingImages: [],
+    };
+  }
 
-  return {
-    decision: {
-      kind: BOT_REPLY_DECISION_KIND,
-      shouldReply: true,
-      response: normalizeVisibleReplyText(response.output_text),
-    },
-    pendingImages: [],
-  };
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const response = await Promise.race([
+      getTimeoutFallbackClient().responses.create({
+        model: TIMEOUT_FALLBACK_MODEL,
+        tools: [{ type: 'web_search' }],
+        input: [
+          `You are ${BOT_NAME}, a helpful AI assistant inside SupaWave.`,
+          'Answer the user in concise Markdown.',
+          'Do not include raw citation markers or tool artifacts.',
+          `User message from ${options.author}: ${options.userMessage}`,
+        ].join('\n\n'),
+      }),
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(
+          () => reject(new Error(`Timeout fallback API call timed out after ${TIMEOUT_FALLBACK_TIMEOUT_MS}ms`)),
+          TIMEOUT_FALLBACK_TIMEOUT_MS,
+        );
+      }),
+    ]);
+
+    return {
+      decision: {
+        kind: BOT_REPLY_DECISION_KIND,
+        shouldReply: true,
+        response: normalizeVisibleReplyText(response.output_text),
+      },
+      pendingImages: [],
+    };
+  } catch (error) {
+    console.warn('[agent] timeout fallback failed', error);
+    return null;
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+  }
 }

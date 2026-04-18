@@ -325,6 +325,30 @@ describe('handleReplyFlow', () => {
     expect(deps.delivery.failPlaceholder).not.toHaveBeenCalled();
   });
 
+  it('fails the placeholder when the fallback path also times out', async () => {
+    vi.useFakeTimers();
+    try {
+      const deps = makeDeps({
+        fullPass: vi.fn().mockImplementation(() => new Promise(() => {})),
+        fullPassTimeoutMs: 5,
+        fullPassFallbackTimeoutMs: 7,
+        fullPassFallback: vi.fn().mockImplementation(() => new Promise(() => {})),
+      });
+
+      const resultPromise = handleReplyFlow(deps);
+
+      await vi.advanceTimersByTimeAsync(12);
+
+      await expect(resultPromise).resolves.toEqual({ outcome: 'error' });
+      expect(deps.delivery.failPlaceholder).toHaveBeenCalledWith(
+        { blipId: 'b+placeholder', content: 'Working on this.' },
+        'Sorry, I ran into a problem while working on this. Please try again.',
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('falls back to full-pass handling when fast pass ignores an explicit mention', async () => {
     const deps = makeDeps({
       payload: {

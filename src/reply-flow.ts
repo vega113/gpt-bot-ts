@@ -18,6 +18,8 @@ import {
 
 const ERROR_REPLY = 'Sorry, I ran into a problem while working on this. Please try again.';
 const FULL_PASS_TIMEOUT_CODE = 'FULL_PASS_TIMEOUT';
+const FULL_PASS_FALLBACK_TIMEOUT_CODE = 'FULL_PASS_FALLBACK_TIMEOUT';
+const DEFAULT_FULL_PASS_FALLBACK_TIMEOUT_MS = 8_250;
 
 class FullPassTimeoutError extends Error {
   code = FULL_PASS_TIMEOUT_CODE;
@@ -25,6 +27,15 @@ class FullPassTimeoutError extends Error {
   constructor() {
     super('Full pass timed out');
     this.name = 'FullPassTimeoutError';
+  }
+}
+
+class FullPassFallbackTimeoutError extends Error {
+  code = FULL_PASS_FALLBACK_TIMEOUT_CODE;
+
+  constructor(timeoutMs: number) {
+    super(`Full pass fallback timed out after ${timeoutMs}ms`);
+    this.name = 'FullPassFallbackTimeoutError';
   }
 }
 
@@ -47,6 +58,7 @@ export interface ReplyFlowDeps {
   fastPass?: FastPassClient<FastPassInput> | null;
   fastPassTimeoutMs?: number;
   fullPassTimeoutMs?: number;
+  fullPassFallbackTimeoutMs?: number;
   fullPass: () => Promise<ProcessResult>;
   fullPassFallback?: (
     reason: 'timeout' | 'error',
@@ -105,13 +117,28 @@ async function tryFullPassFallback(
   if (!deps.fullPassFallback) return null;
 
   const reason = classifyFullPassFailure(error);
+  const fallbackTimeoutMs = deps.fullPassFallbackTimeoutMs ?? DEFAULT_FULL_PASS_FALLBACK_TIMEOUT_MS;
   console.warn(`[reply-flow] full pass ${reason}`, error);
 
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
   try {
-    return await deps.fullPassFallback(reason, error);
+    return await Promise.race([
+      deps.fullPassFallback(reason, error),
+      new Promise<ProcessResult | null>((_, reject) => {
+        timeoutId = setTimeout(
+          () => reject(new FullPassFallbackTimeoutError(fallbackTimeoutMs)),
+          fallbackTimeoutMs,
+        );
+      }),
+    ]);
   } catch (fallbackError) {
     console.warn('[reply-flow] full pass fallback failed', fallbackError);
     return null;
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
   }
 }
 
