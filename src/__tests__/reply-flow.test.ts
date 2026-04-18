@@ -314,7 +314,10 @@ describe('handleReplyFlow', () => {
     const result = await handleReplyFlow(deps);
 
     expect(result.outcome).toBe('full_answer');
-    expect(deps.fullPassFallback).toHaveBeenCalledWith('timeout', expect.any(Error));
+    expect(deps.fullPassFallback).toHaveBeenCalledWith(
+      'timeout',
+      expect.objectContaining({ code: 'FULL_PASS_TIMEOUT' }),
+    );
     expect(deps.delivery.completePlaceholder).toHaveBeenCalledWith(
       { blipId: 'b+placeholder', content: 'Working on this.' },
       'Fallback answer',

@@ -17,6 +17,16 @@ import {
 } from './sanitize-response.js';
 
 const ERROR_REPLY = 'Sorry, I ran into a problem while working on this. Please try again.';
+const FULL_PASS_TIMEOUT_CODE = 'FULL_PASS_TIMEOUT';
+
+class FullPassTimeoutError extends Error {
+  code = FULL_PASS_TIMEOUT_CODE;
+
+  constructor() {
+    super('Full pass timed out');
+    this.name = 'FullPassTimeoutError';
+  }
+}
 
 export interface ReplyFlowPayload {
   waveId: string;
@@ -82,7 +92,10 @@ function normalizeFlowError(error: unknown): Error {
 }
 
 function classifyFullPassFailure(error: Error): 'timeout' | 'error' {
-  return error.message === 'Full pass timed out' ? 'timeout' : 'error';
+  return error instanceof FullPassTimeoutError ||
+    ('code' in error && error.code === FULL_PASS_TIMEOUT_CODE)
+    ? 'timeout'
+    : 'error';
 }
 
 async function tryFullPassFallback(
@@ -112,7 +125,7 @@ async function runFullPass(deps: ReplyFlowDeps): Promise<ProcessResult> {
       deps.fullPass(),
       new Promise<ProcessResult>((_, reject) => {
         timeoutId = setTimeout(
-          () => reject(new Error('Full pass timed out')),
+          () => reject(new FullPassTimeoutError()),
           deps.fullPassTimeoutMs,
         );
       }),
