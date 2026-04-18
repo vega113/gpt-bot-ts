@@ -44,6 +44,7 @@ function makeDeps(overrides: Partial<ReplyFlowDeps> = {}): ReplyFlowDeps {
       },
       pendingImages: [],
     }),
+    fullPassFallback: vi.fn().mockResolvedValue(null),
     delivery: {
       postReply: vi.fn().mockResolvedValue({ blipId: 'b+final', content: 'Final answer' }),
       postPlaceholder: vi.fn().mockResolvedValue({ blipId: 'b+placeholder', content: 'Working on this.' }),
@@ -294,6 +295,86 @@ describe('handleReplyFlow', () => {
       { blipId: 'b+placeholder', content: 'Working on this.' },
       'Sorry, I ran into a problem while working on this. Please try again.',
     );
+  });
+
+  it('uses the fallback full-pass result when the main full pass times out', async () => {
+    const deps = makeDeps({
+      fullPass: vi.fn().mockImplementation(() => new Promise(() => {})),
+      fullPassTimeoutMs: 5,
+      fullPassFallback: vi.fn().mockResolvedValue({
+        decision: {
+          kind: BOT_REPLY_DECISION_KIND,
+          shouldReply: true,
+          response: 'Fallback answer',
+        },
+        pendingImages: [],
+      }),
+    });
+
+    const result = await handleReplyFlow(deps);
+
+    expect(result.outcome).toBe('full_answer');
+    expect(deps.fullPassFallback).toHaveBeenCalledWith(
+      'timeout',
+      expect.objectContaining({ code: 'FULL_PASS_TIMEOUT' }),
+    );
+    expect(deps.delivery.completePlaceholder).toHaveBeenCalledWith(
+      { blipId: 'b+placeholder', content: 'Working on this.' },
+      'Fallback answer',
+    );
+    expect(deps.delivery.failPlaceholder).not.toHaveBeenCalled();
+  });
+
+  it('fails the placeholder if fallback placeholder completion throws', async () => {
+    const deps = makeDeps({
+      fullPass: vi.fn().mockImplementation(() => new Promise(() => {})),
+      fullPassTimeoutMs: 5,
+      fullPassFallback: vi.fn().mockResolvedValue({
+        decision: {
+          kind: BOT_REPLY_DECISION_KIND,
+          shouldReply: true,
+          response: 'Fallback answer',
+        },
+        pendingImages: [],
+      }),
+      delivery: {
+        postReply: vi.fn().mockResolvedValue({ blipId: 'b+final', content: 'Final answer' }),
+        postPlaceholder: vi.fn().mockResolvedValue({ blipId: 'b+placeholder', content: 'Working on this.' }),
+        deletePlaceholder: vi.fn().mockResolvedValue(undefined),
+        completePlaceholder: vi.fn().mockRejectedValue(new Error('complete failed')),
+        failPlaceholder: vi.fn().mockResolvedValue({ blipId: 'b+error', content: 'Sorry, I ran into a problem.' }),
+      },
+    });
+
+    await expect(handleReplyFlow(deps)).resolves.toEqual({ outcome: 'error' });
+    expect(deps.delivery.failPlaceholder).toHaveBeenCalledWith(
+      { blipId: 'b+placeholder', content: 'Working on this.' },
+      'Sorry, I ran into a problem while working on this. Please try again.',
+    );
+  });
+
+  it('fails the placeholder when the fallback path also times out', async () => {
+    vi.useFakeTimers();
+    try {
+      const deps = makeDeps({
+        fullPass: vi.fn().mockImplementation(() => new Promise(() => {})),
+        fullPassTimeoutMs: 5,
+        fullPassFallbackTimeoutMs: 7,
+        fullPassFallback: vi.fn().mockImplementation(() => new Promise(() => {})),
+      });
+
+      const resultPromise = handleReplyFlow(deps);
+
+      await vi.advanceTimersByTimeAsync(12);
+
+      await expect(resultPromise).resolves.toEqual({ outcome: 'error' });
+      expect(deps.delivery.failPlaceholder).toHaveBeenCalledWith(
+        { blipId: 'b+placeholder', content: 'Working on this.' },
+        'Sorry, I ran into a problem while working on this. Please try again.',
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('falls back to full-pass handling when fast pass ignores an explicit mention', async () => {

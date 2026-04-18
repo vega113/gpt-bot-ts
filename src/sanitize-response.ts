@@ -11,6 +11,8 @@
  * Strip OpenAI citation artifacts and normalize whitespace in an LLM response.
  *
  * Operations performed (in order):
+ *  0. Remove private-use citation markers matching the current Responses tool
+ *     artifact shape: `citeturn...`
  *  1. Remove Unicode bracket citations matching the known OpenAI artifact shape:
  *     【turn<digits><alphanum/hyphen/dagger chars>】 (e.g. 【turn0finance0】,
  *     【turn0search0†source】, 【turn0finance0-source】). Full-width brackets
@@ -29,6 +31,12 @@
  */
 export function sanitizeLlmResponse(text: string): string {
   let result = text;
+
+  // 0. Strip the private-use citation marker format emitted by current
+  //    Responses tool outputs, e.g. `citeturn0finance0`.
+  //    These markers are non-standard glyphs that can leak through even when
+  //    the older lenticular-bracket citation forms are absent.
+  result = result.replace(/[\uE200-\uE206]cite[\uE200-\uE206]turn\d+[^\uE200-\uE206\n]*[\uE200-\uE206]/gu, '');
 
   // 1. Strip Unicode bracket citations.  The OpenAI web-search tool injects
   //    references inside 【 】 (U+3010 / U+3011) lenticular brackets.
