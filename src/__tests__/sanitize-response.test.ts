@@ -59,6 +59,11 @@ describe('sanitizeLlmResponse', () => {
     expect(sanitizeLlmResponse(input)).toBe('Data shows growth.');
   });
 
+  it('strips the private-use citation markers emitted by current Responses tool output', () => {
+    const input = 'BTC is around $75,865. citeturn0finance0';
+    expect(sanitizeLlmResponse(input)).toBe('BTC is around $75,865.');
+  });
+
   // ── Regression: bracket content starting with "cite" but not a citation ───
   it('does not strip bracketed text like 【cite our turn2 plan】', () => {
     const input = 'See 【cite our turn2 plan】 for context.';

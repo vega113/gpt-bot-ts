@@ -30,6 +30,12 @@
 export function sanitizeLlmResponse(text: string): string {
   let result = text;
 
+  // 0. Strip the private-use citation marker format emitted by current
+  //    Responses tool outputs, e.g. `citeturn0finance0`.
+  //    These markers are non-standard glyphs that can leak through even when
+  //    the older lenticular-bracket citation forms are absent.
+  result = result.replace(/[\uE200-\uE206]cite[\uE200-\uE206]turn\d+[^\uE200-\uE206\n]*[\uE200-\uE206]/gu, '');
+
   // 1. Strip Unicode bracket citations.  The OpenAI web-search tool injects
   //    references inside 【 】 (U+3010 / U+3011) lenticular brackets.
   //    The bracket content always starts with an optional "cite" prefix

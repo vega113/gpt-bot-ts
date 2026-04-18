@@ -7,6 +7,7 @@
  */
 
 import { Agent, run } from '@openai/agents';
+import OpenAI from 'openai';
 import { z } from 'zod';
 import { webSearch } from './tools/web-search.js';
 import { createWaveReadTool } from './tools/wave-read.js';
@@ -51,6 +52,9 @@ export interface WaveContext {
 }
 
 const BOT_NAME = (process.env['ROBOT_ADDRESS'] ?? 'gpt-ts-bot@supawave.ai').split('@')[0];
+const TIMEOUT_FALLBACK_MODEL = process.env['FULL_PASS_FALLBACK_MODEL'] ?? 'gpt-4.1-mini';
+const TIME_SENSITIVE_FACT_RE =
+  /\b(today|latest|current|right now|news|price|market|weather|who won|score|bitcoin|btc|stock)\b/i;
 
 const SYSTEM_PROMPT = `You are ${BOT_NAME}, a helpful AI assistant inside SupaWave — a collaborative real-time editor inspired by Google Wave.
 
@@ -126,6 +130,7 @@ When a message contains a \`<wave-context>\` block, the user created an **inline
 let agent: Agent<WaveContext, typeof BotDecision> | null = null;
 /** Single-flight guard: concurrent callers await the same init promise. */
 let agentInitPromise: Promise<Agent<WaveContext, typeof BotDecision>> | null = null;
+const timeoutFallbackClient = new OpenAI();
 
 /** Lazily initialize the agent (needs WaveClient for tools). */
 async function getAgent(waveClient: WaveClient): Promise<Agent<WaveContext, typeof BotDecision>> {
@@ -174,6 +179,16 @@ export interface ProcessResult {
   decision: BotDecision;
   /** Images generated during the agent run, to be inserted into the reply blip. */
   pendingImages: PendingImage[];
+}
+
+function shouldUseTimeoutFallback({
+  userMessage,
+  parentContext,
+}: Pick<ProcessMessageOptions, 'userMessage' | 'parentContext'>): boolean {
+  // Keep the direct fallback narrow: it is intended for standalone fresh-fact
+  // requests where web search can return quickly, not for threaded/contextual
+  // analysis or image/tool-heavy tasks.
+  return !parentContext && TIME_SENSITIVE_FACT_RE.test(userMessage);
 }
 
 /**
@@ -260,5 +275,33 @@ export async function processMessage({
       response: DEFAULT_VISIBLE_REPLY_FALLBACK,
     },
     pendingImages: context.pendingImages ?? [],
+  };
+}
+
+export async function processMessageTimeoutFallback(
+  options: ProcessMessageOptions,
+): Promise<ProcessResult | null> {
+  if (!shouldUseTimeoutFallback(options)) {
+    return null;
+  }
+
+  const response = await timeoutFallbackClient.responses.create({
+    model: TIMEOUT_FALLBACK_MODEL,
+    tools: [{ type: 'web_search' }],
+    input: [
+      `You are ${BOT_NAME}, a helpful AI assistant inside SupaWave.`,
+      'Answer the user in concise Markdown.',
+      'Do not include raw citation markers or tool artifacts.',
+      `User message from ${options.author}: ${options.userMessage}`,
+    ].join('\n\n'),
+  });
+
+  return {
+    decision: {
+      kind: BOT_REPLY_DECISION_KIND,
+      shouldReply: true,
+      response: normalizeVisibleReplyText(response.output_text),
+    },
+    pendingImages: [],
   };
 }

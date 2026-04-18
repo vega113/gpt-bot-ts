@@ -38,6 +38,10 @@ export interface ReplyFlowDeps {
   fastPassTimeoutMs?: number;
   fullPassTimeoutMs?: number;
   fullPass: () => Promise<ProcessResult>;
+  fullPassFallback?: (
+    reason: 'timeout' | 'error',
+    error: Error,
+  ) => Promise<ProcessResult | null>;
   delivery: ReplyDelivery;
   onReplyPreference: (state: ReplyPreferenceState) => void;
   onFastReply?: (assistantMessage: string) => Promise<void>;
@@ -71,6 +75,31 @@ function buildFastPassInput(
 
 function cleanVisibleModelText(text: string | null | undefined): string {
   return normalizeVisibleReplyText(text, DEFAULT_VISIBLE_REPLY_FALLBACK);
+}
+
+function normalizeFlowError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+function classifyFullPassFailure(error: Error): 'timeout' | 'error' {
+  return error.message === 'Full pass timed out' ? 'timeout' : 'error';
+}
+
+async function tryFullPassFallback(
+  deps: ReplyFlowDeps,
+  error: Error,
+): Promise<ProcessResult | null> {
+  if (!deps.fullPassFallback) return null;
+
+  const reason = classifyFullPassFailure(error);
+  console.warn(`[reply-flow] full pass ${reason}`, error);
+
+  try {
+    return await deps.fullPassFallback(reason, error);
+  } catch (fallbackError) {
+    console.warn('[reply-flow] full pass fallback failed', fallbackError);
+    return null;
+  }
 }
 
 async function runFullPass(deps: ReplyFlowDeps): Promise<ProcessResult> {
@@ -107,7 +136,19 @@ async function postDirectFullPassReply(
     const posted = await deps.delivery.postReply(replyText);
     await deps.onImages(posted.blipId, full.pendingImages);
     return { outcome: 'full_answer_no_fast_pass' };
-  } catch {
+  } catch (error) {
+    const normalizedError = normalizeFlowError(error);
+    const fallback = await tryFullPassFallback(deps, normalizedError);
+    if (fallback) {
+      if (!fallback.decision.shouldReply) {
+        return { outcome: 'ignored' };
+      }
+      const replyText = cleanVisibleModelText(fallback.decision.response);
+      const posted = await deps.delivery.postReply(replyText);
+      await deps.onImages(posted.blipId, fallback.pendingImages);
+      return { outcome: 'full_answer_no_fast_pass' };
+    }
+
     await deps.delivery.postReply(ERROR_REPLY);
     return { outcome: 'error' };
   }
@@ -181,7 +222,25 @@ export async function handleReplyFlow(
     const posted = await deps.delivery.completePlaceholder(placeholder, finalReply);
     await deps.onImages(posted.blipId, full.pendingImages);
     return { outcome: 'full_answer' };
-  } catch {
+  } catch (error) {
+    const normalizedError = normalizeFlowError(error);
+    const fallback = await tryFullPassFallback(deps, normalizedError);
+    if (fallback) {
+      if (!fallback.decision.shouldReply) {
+        try {
+          await deps.delivery.deletePlaceholder(placeholder);
+        } catch (deleteError) {
+          console.warn('[reply-flow] failed to delete placeholder after fallback silence', deleteError);
+        }
+        return { outcome: 'ignored_after_ack' };
+      }
+
+      const finalReply = cleanVisibleModelText(fallback.decision.response);
+      const posted = await deps.delivery.completePlaceholder(placeholder, finalReply);
+      await deps.onImages(posted.blipId, fallback.pendingImages);
+      return { outcome: 'full_answer' };
+    }
+
     await deps.delivery.failPlaceholder(placeholder, ERROR_REPLY);
     return { outcome: 'error' };
   }

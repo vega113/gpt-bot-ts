@@ -16,7 +16,7 @@
 
 import express from 'express';
 import { WaveClient } from './wave-client.js';
-import { processMessage } from './agent.js';
+import { processMessage, processMessageTimeoutFallback } from './agent.js';
 import {
   clearSession,
   getReplyPreference,
@@ -381,14 +381,42 @@ app.post('/_wave/robot/jsonrpc', async (req, res) => {
         fastPass: fastPassClient,
         fastPassTimeoutMs: FAST_PASS_TIMEOUT_MS,
         fullPassTimeoutMs: FULL_PASS_TIMEOUT_MS,
-        fullPass: () => processMessage({
-          waveId,
-          waveletId,
-          userMessage,
-          author,
-          waveClient,
-          parentContext,
-        }),
+        fullPass: async () => {
+          const startedAt = Date.now();
+          try {
+            const result = await processMessage({
+              waveId,
+              waveletId,
+              userMessage,
+              author,
+              waveClient,
+              parentContext,
+            });
+            const durationMs = Date.now() - startedAt;
+            if (durationMs >= 10_000) {
+              console.warn(`[agent] slow full pass wave=${waveId} durationMs=${durationMs}`);
+            }
+            return result;
+          } catch (error) {
+            console.error(`[agent] full pass failed wave=${waveId} durationMs=${Date.now() - startedAt}`, error);
+            throw error;
+          }
+        },
+        fullPassFallback: async (reason, error) => {
+          if (reason !== 'timeout') {
+            return null;
+          }
+
+          console.warn(`[agent] attempting timeout fallback wave=${waveId}`, error);
+          return processMessageTimeoutFallback({
+            waveId,
+            waveletId,
+            userMessage,
+            author,
+            waveClient,
+            parentContext,
+          });
+        },
         delivery,
         onReplyPreference: (state) => setReplyPreference(waveId, state),
         onFastReply: async (assistantMessage) => {

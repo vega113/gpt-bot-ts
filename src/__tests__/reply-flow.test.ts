@@ -44,6 +44,7 @@ function makeDeps(overrides: Partial<ReplyFlowDeps> = {}): ReplyFlowDeps {
       },
       pendingImages: [],
     }),
+    fullPassFallback: vi.fn().mockResolvedValue(null),
     delivery: {
       postReply: vi.fn().mockResolvedValue({ blipId: 'b+final', content: 'Final answer' }),
       postPlaceholder: vi.fn().mockResolvedValue({ blipId: 'b+placeholder', content: 'Working on this.' }),
@@ -294,6 +295,31 @@ describe('handleReplyFlow', () => {
       { blipId: 'b+placeholder', content: 'Working on this.' },
       'Sorry, I ran into a problem while working on this. Please try again.',
     );
+  });
+
+  it('uses the fallback full-pass result when the main full pass times out', async () => {
+    const deps = makeDeps({
+      fullPass: vi.fn().mockImplementation(() => new Promise(() => {})),
+      fullPassTimeoutMs: 5,
+      fullPassFallback: vi.fn().mockResolvedValue({
+        decision: {
+          kind: BOT_REPLY_DECISION_KIND,
+          shouldReply: true,
+          response: 'Fallback answer',
+        },
+        pendingImages: [],
+      }),
+    });
+
+    const result = await handleReplyFlow(deps);
+
+    expect(result.outcome).toBe('full_answer');
+    expect(deps.fullPassFallback).toHaveBeenCalledWith('timeout', expect.any(Error));
+    expect(deps.delivery.completePlaceholder).toHaveBeenCalledWith(
+      { blipId: 'b+placeholder', content: 'Working on this.' },
+      'Fallback answer',
+    );
+    expect(deps.delivery.failPlaceholder).not.toHaveBeenCalled();
   });
 
   it('falls back to full-pass handling when fast pass ignores an explicit mention', async () => {
