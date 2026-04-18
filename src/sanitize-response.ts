@@ -11,6 +11,8 @@
  * Strip OpenAI citation artifacts and normalize whitespace in an LLM response.
  *
  * Operations performed (in order):
+ *  0. Remove private-use citation markers matching the current Responses tool
+ *     artifact shape: `citeturn...`
  *  1. Remove Unicode bracket citations matching the known OpenAI artifact shape:
  *     【turn<digits><alphanum/hyphen/dagger chars>】 (e.g. 【turn0finance0】,
  *     【turn0search0†source】, 【turn0finance0-source】). Full-width brackets

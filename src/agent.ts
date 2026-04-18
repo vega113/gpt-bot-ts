@@ -130,7 +130,12 @@ When a message contains a \`<wave-context>\` block, the user created an **inline
 let agent: Agent<WaveContext, typeof BotDecision> | null = null;
 /** Single-flight guard: concurrent callers await the same init promise. */
 let agentInitPromise: Promise<Agent<WaveContext, typeof BotDecision>> | null = null;
-const timeoutFallbackClient = new OpenAI();
+let timeoutFallbackClient: OpenAI | null = null;
+
+function getTimeoutFallbackClient(): OpenAI {
+  timeoutFallbackClient ??= new OpenAI();
+  return timeoutFallbackClient;
+}
 
 /** Lazily initialize the agent (needs WaveClient for tools). */
 async function getAgent(waveClient: WaveClient): Promise<Agent<WaveContext, typeof BotDecision>> {
@@ -285,7 +290,7 @@ export async function processMessageTimeoutFallback(
     return null;
   }
 
-  const response = await timeoutFallbackClient.responses.create({
+  const response = await getTimeoutFallbackClient().responses.create({
     model: TIMEOUT_FALLBACK_MODEL,
     tools: [{ type: 'web_search' }],
     input: [
