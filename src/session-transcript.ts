@@ -52,23 +52,37 @@ function normalizeAssistantDecisionItem(item: AgentInputItem): NormalizedDecisio
 }
 
 export function normalizeItemsForConversationMemory(items: AgentInputItem[]): AgentInputItem[] {
-  return items.flatMap((item) => {
+  let normalizedItems: AgentInputItem[] | null = null;
+
+  items.forEach((item, index) => {
     const normalizedDecision = normalizeAssistantDecisionItem(item);
 
     if (normalizedDecision.action === 'drop') {
-      return [];
+      if (!normalizedItems) {
+        normalizedItems = items.slice(0, index);
+      }
+      return;
     }
 
     if (normalizedDecision.action === 'keep') {
-      return [item];
+      if (normalizedItems) {
+        normalizedItems.push(item);
+      }
+      return;
     }
 
-    return [{
+    if (!normalizedItems) {
+      normalizedItems = items.slice(0, index);
+    }
+
+    normalizedItems.push({
       ...item,
       content: [{
         type: 'output_text',
         text: normalizedDecision.response,
       }],
-    } as AgentInputItem];
+    } as AgentInputItem);
   });
+
+  return normalizedItems ?? items;
 }
