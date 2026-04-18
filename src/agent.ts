@@ -210,12 +210,12 @@ function shouldUseTimeoutFallback({
 
 function shouldReplyFromTimeoutFallback({
   isExplicitMention = false,
-  participantCount = 2,
+  participantCount,
 }: Pick<ProcessMessageOptions, 'isExplicitMention' | 'participantCount'>): boolean {
   // The main reply flow already enforces explicit quiet-mode preferences.
   // This fallback gate keeps the fast path conservative in larger waves where
   // the stalled full-pass reasoning would normally decide whether to speak.
-  return isExplicitMention || participantCount <= 2;
+  return isExplicitMention || (participantCount !== undefined && participantCount <= 2);
 }
 
 /**
@@ -324,9 +324,16 @@ export async function processMessageTimeoutFallback(
   }
 
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const abortController = new AbortController();
   try {
-    const response = await Promise.race([
-      getTimeoutFallbackClient().responses.create({
+    timeoutId = setTimeout(() => {
+      abortController.abort(
+        new Error(`Timeout fallback API call timed out after ${TIMEOUT_FALLBACK_TIMEOUT_MS}ms`),
+      );
+    }, TIMEOUT_FALLBACK_TIMEOUT_MS);
+
+    const response = await getTimeoutFallbackClient().responses.create(
+      {
         model: TIMEOUT_FALLBACK_MODEL,
         tools: [{ type: 'web_search' }],
         input: [
@@ -335,14 +342,9 @@ export async function processMessageTimeoutFallback(
           'Do not include raw citation markers or tool artifacts.',
           `User message from ${options.author}: ${options.userMessage}`,
         ].join('\n\n'),
-      }),
-      new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(
-          () => reject(new Error(`Timeout fallback API call timed out after ${TIMEOUT_FALLBACK_TIMEOUT_MS}ms`)),
-          TIMEOUT_FALLBACK_TIMEOUT_MS,
-        );
-      }),
-    ]);
+      },
+      { signal: abortController.signal },
+    );
 
     return {
       decision: {

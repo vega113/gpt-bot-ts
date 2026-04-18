@@ -56,6 +56,7 @@ describe('processMessageTimeoutFallback', () => {
       userMessage: 'What is the latest bitcoin price today?',
       author: 'alice@example.com',
       waveClient: {} as never,
+      participantCount: 2,
     });
 
     expect(openAIConstructor).toHaveBeenCalledTimes(1);
@@ -73,17 +74,24 @@ describe('processMessageTimeoutFallback', () => {
       userMessage: 'What is the latest bitcoin price today?',
       author: 'alice@example.com',
       waveClient: {} as never,
+      participantCount: 2,
     });
 
     expect(createResponse).toHaveBeenCalledWith(
       expect.objectContaining({ model: 'gpt-4.1-mini' }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
   });
 
   it('returns null when the fallback API call exceeds the local timeout', async () => {
     vi.useFakeTimers();
     process.env['FULL_PASS_FALLBACK_TIMEOUT_MS'] = '5';
-    createResponse.mockImplementation(() => new Promise(() => {}));
+    createResponse.mockImplementation((_request, requestOptions) => {
+      const signal = requestOptions?.signal;
+      return new Promise((_resolve, reject) => {
+        signal?.addEventListener('abort', () => reject(signal.reason));
+      });
+    });
     const agentModule = await import('../agent.js');
 
     const fallbackPromise = agentModule.processMessageTimeoutFallback({
@@ -92,12 +100,41 @@ describe('processMessageTimeoutFallback', () => {
       userMessage: 'What is the latest bitcoin price today?',
       author: 'alice@example.com',
       waveClient: {} as never,
+      participantCount: 2,
     });
 
     await vi.advanceTimersByTimeAsync(5);
 
     await expect(fallbackPromise).resolves.toBeNull();
     expect(createResponse).toHaveBeenCalledTimes(1);
+  });
+
+  it('aborts the underlying OpenAI request when the local timeout expires', async () => {
+    vi.useFakeTimers();
+    process.env['FULL_PASS_FALLBACK_TIMEOUT_MS'] = '5';
+    let receivedSignal: AbortSignal | undefined;
+    createResponse.mockImplementation((_request, requestOptions) => {
+      receivedSignal = requestOptions?.signal;
+      return new Promise((_resolve, reject) => {
+        receivedSignal?.addEventListener('abort', () => reject(receivedSignal.reason));
+      });
+    });
+    const agentModule = await import('../agent.js');
+
+    const fallbackPromise = agentModule.processMessageTimeoutFallback({
+      waveId: 'wave-1',
+      waveletId: 'wave-1!conv+root',
+      userMessage: 'What is the latest bitcoin price today?',
+      author: 'alice@example.com',
+      waveClient: {} as never,
+      participantCount: 2,
+    });
+
+    await vi.advanceTimersByTimeAsync(5);
+
+    await expect(fallbackPromise).resolves.toBeNull();
+    expect(receivedSignal).toBeDefined();
+    expect(receivedSignal?.aborted).toBe(true);
   });
 
   it('stays silent for non-mentioned messages in larger waves', async () => {
@@ -110,6 +147,30 @@ describe('processMessageTimeoutFallback', () => {
       author: 'alice@example.com',
       waveClient: {} as never,
       participantCount: 3,
+      isExplicitMention: false,
+    });
+
+    expect(result).toEqual({
+      decision: {
+        kind: BOT_REPLY_DECISION_KIND,
+        shouldReply: false,
+        response: null,
+      },
+      pendingImages: [],
+    });
+    expect(openAIConstructor).not.toHaveBeenCalled();
+    expect(createResponse).not.toHaveBeenCalled();
+  });
+
+  it('stays silent when participant metadata is missing and there is no explicit mention', async () => {
+    const agentModule = await import('../agent.js');
+
+    const result = await agentModule.processMessageTimeoutFallback({
+      waveId: 'wave-1',
+      waveletId: 'wave-1!conv+root',
+      userMessage: 'What is the latest bitcoin price today?',
+      author: 'alice@example.com',
+      waveClient: {} as never,
       isExplicitMention: false,
     });
 
