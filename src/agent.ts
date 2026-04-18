@@ -59,7 +59,10 @@ const TIMEOUT_FALLBACK_TIMEOUT_MS = parsePositiveIntEnv(
   8_000,
 );
 const TIME_SENSITIVE_FACT_RE =
-  /\b(today|latest|current|right now|news|price|market|weather|who won|score|bitcoin|btc|stock)\b/i;
+  /\b(news|price|market|weather|score|bitcoin|btc|stock)\b|who won/i;
+const QUESTION_INTENT_RE =
+  /\?|^\s*(what|who|when|where|why|how|is|are|do|does|did|can|could|would|will|show|tell|give|check|find|lookup|look up)\b/i;
+const MAX_LOOKUP_FRAGMENT_WORDS = 4;
 
 const SYSTEM_PROMPT = `You are ${BOT_NAME}, a helpful AI assistant inside SupaWave — a collaborative real-time editor inspired by Google Wave.
 
@@ -205,7 +208,15 @@ function shouldUseTimeoutFallback({
   // Keep the direct fallback narrow: it is intended for standalone fresh-fact
   // requests where web search can return quickly, not for threaded/contextual
   // analysis or image/tool-heavy tasks.
-  return !parentContext && TIME_SENSITIVE_FACT_RE.test(userMessage);
+  if (parentContext) return false;
+
+  const trimmedMessage = userMessage.trim();
+  if (!TIME_SENSITIVE_FACT_RE.test(trimmedMessage)) return false;
+
+  const wordCount = trimmedMessage === '' ? 0 : trimmedMessage.split(/\s+/).length;
+  const looksLikeShortLookup = wordCount > 0 && wordCount <= MAX_LOOKUP_FRAGMENT_WORDS;
+
+  return QUESTION_INTENT_RE.test(trimmedMessage) || looksLikeShortLookup;
 }
 
 function shouldReplyFromTimeoutFallback({

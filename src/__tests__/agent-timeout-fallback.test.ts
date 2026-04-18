@@ -185,4 +185,22 @@ describe('processMessageTimeoutFallback', () => {
     expect(openAIConstructor).not.toHaveBeenCalled();
     expect(createResponse).not.toHaveBeenCalled();
   });
+
+  it('does not trigger fallback for non-question prose that happens to contain freshness words', async () => {
+    const agentModule = await import('../agent.js');
+
+    const result = await agentModule.processMessageTimeoutFallback({
+      waveId: 'wave-1',
+      waveletId: 'wave-1!conv+root',
+      userMessage: 'here is the current draft for today',
+      author: 'alice@example.com',
+      waveClient: {} as never,
+      participantCount: 2,
+      isExplicitMention: false,
+    });
+
+    expect(result).toBeNull();
+    expect(openAIConstructor).not.toHaveBeenCalled();
+    expect(createResponse).not.toHaveBeenCalled();
+  });
 });
