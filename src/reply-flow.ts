@@ -275,10 +275,16 @@ export async function handleReplyFlow(
         return { outcome: 'ignored_after_ack' };
       }
 
-      const finalReply = cleanVisibleModelText(fallback.decision.response);
-      const posted = await deps.delivery.completePlaceholder(placeholder, finalReply);
-      await deps.onImages(posted.blipId, fallback.pendingImages);
-      return { outcome: 'full_answer' };
+      try {
+        const finalReply = cleanVisibleModelText(fallback.decision.response);
+        const posted = await deps.delivery.completePlaceholder(placeholder, finalReply);
+        await deps.onImages(posted.blipId, fallback.pendingImages);
+        return { outcome: 'full_answer' };
+      } catch (fallbackDeliveryError) {
+        console.warn('[reply-flow] failed to deliver fallback placeholder reply', fallbackDeliveryError);
+        await deps.delivery.failPlaceholder(placeholder, ERROR_REPLY);
+        return { outcome: 'error' };
+      }
     }
 
     await deps.delivery.failPlaceholder(placeholder, ERROR_REPLY);

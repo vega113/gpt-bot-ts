@@ -325,6 +325,34 @@ describe('handleReplyFlow', () => {
     expect(deps.delivery.failPlaceholder).not.toHaveBeenCalled();
   });
 
+  it('fails the placeholder if fallback placeholder completion throws', async () => {
+    const deps = makeDeps({
+      fullPass: vi.fn().mockImplementation(() => new Promise(() => {})),
+      fullPassTimeoutMs: 5,
+      fullPassFallback: vi.fn().mockResolvedValue({
+        decision: {
+          kind: BOT_REPLY_DECISION_KIND,
+          shouldReply: true,
+          response: 'Fallback answer',
+        },
+        pendingImages: [],
+      }),
+      delivery: {
+        postReply: vi.fn().mockResolvedValue({ blipId: 'b+final', content: 'Final answer' }),
+        postPlaceholder: vi.fn().mockResolvedValue({ blipId: 'b+placeholder', content: 'Working on this.' }),
+        deletePlaceholder: vi.fn().mockResolvedValue(undefined),
+        completePlaceholder: vi.fn().mockRejectedValue(new Error('complete failed')),
+        failPlaceholder: vi.fn().mockResolvedValue({ blipId: 'b+error', content: 'Sorry, I ran into a problem.' }),
+      },
+    });
+
+    await expect(handleReplyFlow(deps)).resolves.toEqual({ outcome: 'error' });
+    expect(deps.delivery.failPlaceholder).toHaveBeenCalledWith(
+      { blipId: 'b+placeholder', content: 'Working on this.' },
+      'Sorry, I ran into a problem while working on this. Please try again.',
+    );
+  });
+
   it('fails the placeholder when the fallback path also times out', async () => {
     vi.useFakeTimers();
     try {
